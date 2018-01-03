@@ -109,6 +109,10 @@ Atom::Atom(LAMMPS *lmp) : Pointers(lmp)
   cc = cc_flux = NULL;
   edpd_temp = edpd_flux = edpd_cv = NULL;
 
+  // USER-DEMSI
+  forcing = NULL;
+  mean_thickness = min_thickness = NULL;
+
   // USER-SMD
 
   contact_radius = NULL;

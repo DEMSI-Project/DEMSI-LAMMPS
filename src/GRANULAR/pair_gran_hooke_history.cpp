@@ -39,7 +39,8 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-PairGranHookeHistory::PairGranHookeHistory(LAMMPS *lmp) : Pair(lmp)
+PairGranHookeHistory::PairGranHookeHistory(LAMMPS *lmp, int _size_history) : Pair(lmp),
+  size_history(_size_history)
 {
   single_enable = 1;
   no_virial_fdotr_compute = 1;
@@ -137,6 +138,7 @@ void PairGranHookeHistory::compute(int eflag, int vflag)
   ilist = list->ilist;
   numneigh = list->numneigh;
   firstneigh = list->firstneigh;
+
   firsttouch = fix_history->firstflag;
   firstshear = fix_history->firstvalue;
 
@@ -412,7 +414,7 @@ void PairGranHookeHistory::init_style()
 
   if (history && fix_history == NULL) {
     char dnumstr[16];
-    sprintf(dnumstr,"%d",3);
+    sprintf(dnumstr,"%d",size_history);
     char **fixarg = new char*[4];
     fixarg[0] = (char *) "NEIGH_HISTORY";
     fixarg[1] = (char *) "all";
