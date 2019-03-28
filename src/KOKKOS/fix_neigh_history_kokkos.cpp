@@ -77,6 +77,10 @@ template <class DeviceType>
 void FixNeighHistoryKokkos<DeviceType>::pre_exchange()
 {
   copymode = 1;
+
+  k_partner.template sync<LMPDeviceType>();
+  k_npartner.template sync<LMPDeviceType>();
+  k_valuepartner.template sync<LMPDeviceType>();
   
   h_resize() = 1;
   while (h_resize() > 0) {
@@ -98,6 +102,14 @@ void FixNeighHistoryKokkos<DeviceType>::pre_exchange()
       memoryKK->grow_kokkos(k_valuepartner,valuepartner,atom->nmax,dnum*maxpartner,"neighbor_history:valuepartner");
     }
   }
+
+  k_partner.template modify<LMPDeviceType>();
+  k_npartner.template modify<LMPDeviceType>();
+  k_valuepartner.template modify<LMPDeviceType>();
+
+  k_partner.template sync<LMPHostType>();
+  k_npartner.template sync<LMPHostType>();
+  k_valuepartner.template sync<LMPHostType>();
 
   copymode = 0;
 
@@ -188,6 +200,10 @@ void FixNeighHistoryKokkos<DeviceType>::setup_post_neighbor()
 template <class DeviceType>
 void FixNeighHistoryKokkos<DeviceType>::post_neighbor()
 {
+  k_partner.template sync<LMPDeviceType>();
+  k_npartner.template sync<LMPDeviceType>();
+  k_valuepartner.template sync<LMPDeviceType>();
+
   tag = atomKK->k_tag.view<DeviceType>();
   
   int inum = pair->list->inum;

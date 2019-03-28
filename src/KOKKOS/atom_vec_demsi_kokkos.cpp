@@ -3367,9 +3367,9 @@ void AtomVecDemsiKokkos::data_vel(int m, char **values)
 int AtomVecDemsiKokkos::data_vel_hybrid(int m, char **values)
 {
   sync(Host,OMEGA_MASK);
-  omega[m][0] = atof(values[0]);
-  omega[m][1] = atof(values[1]);
-  omega[m][2] = atof(values[2]);
+  h_omega(m,0) = atof(values[0]);
+  h_omega(m,1) = atof(values[1]);
+  h_omega(m,2) = atof(values[2]);
   modified(Host,OMEGA_MASK);
   return 3;
 }
