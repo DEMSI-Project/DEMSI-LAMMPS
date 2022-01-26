@@ -50,7 +50,7 @@ PairGranHopkinsKokkos<DeviceType>::PairGranHopkinsKokkos(LAMMPS *lmp) : PairGran
 {
   atomKK = (AtomKokkos *) atom;
   execution_space = ExecutionSpaceFromDevice<DeviceType>::space;
-  datamask_read = X_MASK | V_MASK | OMEGA_MASK | F_MASK | TORQUE_MASK | TYPE_MASK | MASK_MASK | 
+  datamask_read = X_MASK | V_MASK | OMEGA_MASK | F_MASK | TORQUE_MASK | TYPE_MASK | MASK_MASK |
                   ENERGY_MASK | VIRIAL_MASK | RMASS_MASK | RADIUS_MASK | THICKNESS_MASK;
   datamask_modify = F_MASK | TORQUE_MASK | ENERGY_MASK | VIRIAL_MASK | THICKNESS_MASK;
 }
@@ -149,6 +149,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
 
   x = atomKK->k_x.view<DeviceType>();
   v = atomKK->k_v.view<DeviceType>();
+  orientation = atomKK->k_orientation.view<DeviceType>();
   omega = atomKK->k_omega.view<DeviceType>();
   f = atomKK->k_f.view<DeviceType>();
   torque = atomKK->k_torque.view<DeviceType>();
@@ -728,6 +729,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i, int j, i
      F_FLOAT contactForce;
 
      if (type(i) == 2 || type(j) == 2){
+
        F_FLOAT elasticStiffness;
        F_FLOAT elasticDamping;
        int iceIndex;
@@ -744,8 +746,9 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i, int j, i
 			 elasticDamping);
        contactForce = (elasticStiffness*delta + elasticDamping*delta_dot) * L;
        kt0 = Gmod/L*mean_thickness(iceIndex);
-     }
-     else{
+
+     } else {
+
        kt0 = Gmod/L*(1/(1/mean_thickness(i) + 1/mean_thickness(j)));
        F_FLOAT particleRadius = 5000.0;
 
@@ -786,6 +789,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i, int j, i
          d_firsthistory(i,size_history*jj+10) = ridgeSlip;
          d_firsthistory(i,size_history*jj+11) = ridgeSlipUsed;
        }
+
      }
      // Compute plastic normal force
      /*hprime = d_firsthistory(i,size_history*jj+4);
@@ -821,7 +825,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i, int j, i
        ndisp = nx*d_firsthistory(i,size_history*jj+2) + ny*d_firsthistory(i,size_history*jj+3);
        var1 = d_firsthistory(i,size_history*jj+2);
        var2 = d_firsthistory(i,size_history*jj+3);
-       dispmag =sqrt(var1*var1 + var2*var2); 
+       dispmag =sqrt(var1*var1 + var2*var2);
        denom = dispmag - ndisp;
        if (ndisp > EPSILON && denom != 0){
           scalefac = dispmag/denom;
@@ -829,15 +833,15 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i, int j, i
           d_firsthistory(i,size_history*jj+3) -= ndisp*ny;
           d_firsthistory(i,size_history*jj+2) *= scalefac;
           d_firsthistory(i,size_history*jj+3) *= scalefac;
-        }
-        d_firsthistory(i,size_history*jj+2) += vtx*update_dt;
-        d_firsthistory(i,size_history*jj+3) += vty*update_dt;
+       }
+       d_firsthistory(i,size_history*jj+2) += vtx*update_dt;
+       d_firsthistory(i,size_history*jj+3) += vty*update_dt;
 
-	 }
+     }
 
      var1 = d_firsthistory(i,size_history*jj+2);
      var2 = d_firsthistory(i,size_history*jj+3);
-     dispmag =sqrt(var1*var1 + var2*var2); 
+     dispmag =sqrt(var1*var1 + var2*var2);
 
      // total tangential force
      ftx = - (kt0*var1 + damp_tangential*vtx);
@@ -871,7 +875,6 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i, int j, i
   } // rsq < radsum*radsum
 }
 
-        
 template<class DeviceType>
 template<int NEIGHFLAG, int NEWTON_PAIR, int HISTORYUPDATE>
 KOKKOS_INLINE_FUNCTION
@@ -879,128 +882,134 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_kokkos(int i, int j, int 
                      F_FLOAT &fx, F_FLOAT &fy, F_FLOAT &torque_i, F_FLOAT &torque_j) const
 {
 
-  //See design document for definitions of these variables
-  F_FLOAT s1x, s1y, s2x, s2y, mx, my, mmag, mex, mey, bex, bey, rx, ry, rxj, ryj;
-  F_FLOAT An, Bn, Cn, Dn, Bt, Ct, Dt, Bnj, Cnj, Dnj, Btj;
-  F_FLOAT Fnmag, Ftmag, Nn, Nt, Nnj, Ntj;
-
-  F_FLOAT chi1 = d_firsthistory(i,size_history*jj+8);
-  F_FLOAT chi2 = d_firsthistory(i,size_history*jj+9);
-  F_FLOAT chidiff, chidiff2, chidiff3;
-
-  F_FLOAT sig_n1, sig_s1;
-  F_FLOAT chi_c, chi_t, chi_s1, chi_s2;
-  F_FLOAT nprefac, sprefac;
-  F_FLOAT damp_prefac, area_bond, fdampx, fdampy, torquedamp;
-  F_FLOAT hmin;
-
-  F_FLOAT dvx, dvy;
-
-  if (HISTORYUPDATE){
- 
-    // Update bond end points based on particle translations
-    d_firsthistory(i,size_history*jj)   += dt*v(i,0);
-    d_firsthistory(i,size_history*jj+1) += dt*v(i,1);
-    d_firsthistory(i,size_history*jj+2) += dt*v(i,0);
-    d_firsthistory(i,size_history*jj+3) += dt*v(i,1);
-
-    d_firsthistory(i,size_history*jj+4) += dt*v(j,0);
-    d_firsthistory(i,size_history*jj+5) += dt*v(j,1);
-    d_firsthistory(i,size_history*jj+6) += dt*v(j,0);
-    d_firsthistory(i,size_history*jj+7) += dt*v(j,1);
-
-    // Update bond end points based on particle rotations
-    d_firsthistory(i,size_history*jj)   += -dt*omega(i,2)*(d_firsthistory(i,size_history*jj+1)-x(i,1));
-    d_firsthistory(i,size_history*jj+1) +=  dt*omega(i,2)*(d_firsthistory(i,size_history*jj)  -x(i,0));
-    d_firsthistory(i,size_history*jj+2) += -dt*omega(i,2)*(d_firsthistory(i,size_history*jj+3)-x(i,1));
-    d_firsthistory(i,size_history*jj+3) +=  dt*omega(i,2)*(d_firsthistory(i,size_history*jj+2)-x(i,0));
-
-    d_firsthistory(i,size_history*jj+4) += -dt*omega(j,2)*(d_firsthistory(i,size_history*jj+5)-x(j,1));
-    d_firsthistory(i,size_history*jj+5) +=  dt*omega(j,2)*(d_firsthistory(i,size_history*jj+4)-x(j,0));
-    d_firsthistory(i,size_history*jj+6) += -dt*omega(j,2)*(d_firsthistory(i,size_history*jj+7)-x(j,1));
-    d_firsthistory(i,size_history*jj+7) +=  dt*omega(j,2)*(d_firsthistory(i,size_history*jj+6)-x(j,0));
+  // See design document for definitions of these variables
+  F_FLOAT bondAnglei;
+  F_FLOAT bondAnglej;
+  F_FLOAT bondDistancei;
+  F_FLOAT bondDistancej;
+  if (tag[i] < tag[j]) {
+    bondAnglei    = d_firsthistory(i,size_history*jj);
+    bondAnglej    = d_firsthistory(i,size_history*jj+1);
+    bondDistancei = d_firsthistory(i,size_history*jj+2);
+    bondDistancej = d_firsthistory(i,size_history*jj+3);
+  } else {
+    bondAnglej    = d_firsthistory(i,size_history*jj);
+    bondAnglei    = d_firsthistory(i,size_history*jj+1);
+    bondDistancej = d_firsthistory(i,size_history*jj+2);
+    bondDistancei = d_firsthistory(i,size_history*jj+3);
   }
+  F_FLOAT chi1          = d_firsthistory(i,size_history*jj+8);
+  F_FLOAT chi2          = d_firsthistory(i,size_history*jj+9);
+  F_FLOAT bondLength    = d_firsthistory(i,size_history*jj+10);
+  F_FLOAT bondThickness = d_firsthistory(i,size_history*jj+11);
 
-  //Compute s_1, s_2, m, m_e, b_e
-  s1x = d_firsthistory(i,size_history*jj+4) - d_firsthistory(i,size_history*jj);
-  s1y = d_firsthistory(i,size_history*jj+5) - d_firsthistory(i,size_history*jj+1);
-  s2x = d_firsthistory(i,size_history*jj+6) - d_firsthistory(i,size_history*jj+2);
-  s2y = d_firsthistory(i,size_history*jj+7) - d_firsthistory(i,size_history*jj+3);
+  // particle i
+  F_FLOAT nxi = std::cos(bondAnglei + orientation(i));
+  F_FLOAT nyi = std::sin(bondAnglei + orientation(i));
+  F_FLOAT txi = -nyi;
+  F_FLOAT tyi =  nxi;
 
-  mx = d_firsthistory(i,size_history*jj+2) + 0.5*s2x - d_firsthistory(i,size_history*jj) - 0.5*s1x;
-  my = d_firsthistory(i,size_history*jj+3) + 0.5*s2y - d_firsthistory(i,size_history*jj+1) - 0.5*s1y;
-  mmag = sqrt(mx*mx + my*my);
-  mex = mx/mmag;
-  mey = my/mmag;
+  F_FLOAT cxi = x(i,0) + nxi * bondDistancei;
+  F_FLOAT cyi = x(i,1) + nyi * bondDistancei;
+  F_FLOAT b1xi = cxi + txi * 0.5 * bondLength;
+  F_FLOAT b1yi = cyi + tyi * 0.5 * bondLength;
+  F_FLOAT b2xi = cxi - txi * 0.5 * bondLength;
+  F_FLOAT b2yi = cyi - tyi * 0.5 * bondLength;
 
-  bex = mey;
-  bey = -mex;
+  // particle j
+  F_FLOAT nxj = std::cos(bondAnglej + orientation(j));
+  F_FLOAT nyj = std::sin(bondAnglej + orientation(j));
+  F_FLOAT txj = -nyj;
+  F_FLOAT tyj =  nxj;
 
-  rx = d_firsthistory(i,size_history*jj)   + 0.5*s1x - x(i,0);
-  ry = d_firsthistory(i,size_history*jj+1) + 0.5*s1y - x(i,1);
+  F_FLOAT cxj = x(j,0) + nxj * bondDistancej;
+  F_FLOAT cyj = x(j,1) + nyj * bondDistancej;
+  F_FLOAT b1xj = cxj - txj * 0.5 * bondLength;
+  F_FLOAT b1yj = cyj - tyj * 0.5 * bondLength;
+  F_FLOAT b2xj = cxj + txj * 0.5 * bondLength;
+  F_FLOAT b2yj = cyj + tyj * 0.5 * bondLength;
 
-  //Compute forces and torques
-  Dn = s1x*bex + s1y*bey;
-  Cn = s2x*bex + s2y*bey - Dn;
-  Bn = rx*bey - ry*bex;
-  An = mx*bey - my*bex;
+  // Compute s_1, s_2, m, m_e, b_e
+  F_FLOAT s1x = b1xj - b1xi;
+  F_FLOAT s1y = b1yj - b1yi;
+  F_FLOAT s2x = b2xj - b2xi;
+  F_FLOAT s2y = b2yj - b2yi;
 
-  Dt = s1x*mex + s1y*mey;
-  Ct = s2x*mex + s2y*mey - Dt;
-  Bt = rx*mey - ry*mex;
+  F_FLOAT mx = 0.5 * (b2xj + b2xi - b1xj - b1xi);
+  F_FLOAT my = 0.5 * (b2yj + b2yi - b1yj - b1yi);
 
-  chidiff = chi2-chi1;
-  chidiff2 = 0.5*(chi2*chi2 - chi1*chi1);
-  chidiff3 = MathConst::THIRD*(chi2*chi2*chi2 - chi1*chi1*chi1);
-  F_FLOAT kn0 = d_firsthistory(i,size_history*jj+11)*Emod/d_firsthistory(i,size_history*jj+10);
-  F_FLOAT kt0 = d_firsthistory(i,size_history*jj+11)*Gmod/d_firsthistory(i,size_history*jj+10);
-  nprefac = d_firsthistory(i,size_history*jj+10)*kn0;
-  sprefac = d_firsthistory(i,size_history*jj+10)*kt0;
+  F_FLOAT mmag = sqrt(mx*mx + my*my);
+  F_FLOAT mex = mx/mmag;
+  F_FLOAT mey = my/mmag;
 
+  F_FLOAT bex = mey;
+  F_FLOAT bey = -mex;
 
-  Fnmag = nprefac*(Dn*chidiff + Cn*chidiff2);
-  Ftmag = sprefac*(Dt*chidiff + Ct*chidiff2);
-  Nn = nprefac*(An*Cn*chidiff3 + (Bn*Cn+An*Dn)*chidiff2 + Bn*Dn*chidiff);
-  Nt = Bt*Ftmag;
+  F_FLOAT rx = b1xi + 0.5*s1x - x(i,0);
+  F_FLOAT ry = b1yi + 0.5*s1y - x(i,1);
 
-  //Damping force
-  area_bond = d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*chidiff;
-  damp_prefac = damp_bonded*area_bond;
+  // Compute forces and torques
+  F_FLOAT Dn = s1x*bex + s1y*bey;
+  F_FLOAT Cn = s2x*bex + s2y*bey - Dn;
+  F_FLOAT Bn = rx*bey - ry*bex;
+  F_FLOAT An = mx*bey - my*bex;
 
-  dvx = v(j,0) - v(i,0);
-  dvy = v(j,1) - v(i,1);
-  fdampx = damp_prefac*dvx;
-  fdampy = damp_prefac*dvy;
+  F_FLOAT Dt = s1x*mex + s1y*mey;
+  F_FLOAT Ct = s2x*mex + s2y*mey - Dt;
+  F_FLOAT Bt = rx*mey - ry*mex;
 
-  //Damping torque
-  torquedamp = -damp_bonded*area_bond*area_bond*(omega(i,2)-omega(j,2));
+  F_FLOAT chidiff = chi2-chi1;
+  F_FLOAT chidiff2 = 0.5*(chi2*chi2 - chi1*chi1);
+  F_FLOAT chidiff3 = MathConst::THIRD*(chi2*chi2*chi2 - chi1*chi1*chi1);
+  F_FLOAT kn0 = bondThickness*Emod/bondLength;
+  F_FLOAT kt0 = bondThickness*Gmod/bondLength;
+  F_FLOAT nprefac = bondLength*kn0;
+  F_FLOAT sprefac = bondLength*kt0;
 
-  //Update forces and torque
+  F_FLOAT Fnmag = nprefac*(Dn*chidiff + Cn*chidiff2);
+  F_FLOAT Ftmag = sprefac*(Dt*chidiff + Ct*chidiff2);
+  F_FLOAT Nn = nprefac*(An*Cn*chidiff3 + (Bn*Cn+An*Dn)*chidiff2 + Bn*Dn*chidiff);
+  F_FLOAT Nt = Bt*Ftmag;
+
+  // Damping force
+  F_FLOAT area_bond = bondLength * bondThickness * chidiff;
+  F_FLOAT damp_prefac = damp_bonded * area_bond;
+
+  F_FLOAT dvx = v(j,0) - v(i,0);
+  F_FLOAT dvy = v(j,1) - v(i,1);
+  F_FLOAT fdampx = damp_prefac * dvx;
+  F_FLOAT fdampy = damp_prefac * dvy;
+
+  // Damping torque
+  F_FLOAT torquedamp = -damp_bonded * area_bond * area_bond * (omega(i,2) - omega(j,2));
+
+  // Update forces and torque
   fx = Fnmag*bex + Ftmag*mex;
   fy = Fnmag*bey + Ftmag*mey;
 
-  fx = fx+fdampx;
-  fy = fy+fdampy;
+  fx = fx + fdampx;
+  fy = fy + fdampy;
 
   torque_i = Nn + Nt + torquedamp;
 
   torque_j = 0;
   if (NEWTON_PAIR || j < nlocal){
 
-    rxj = d_firsthistory(i,size_history*jj) + 0.5*s1x - x(j,0);
-    ryj = d_firsthistory(i,size_history*jj+1) + 0.5*s1y - x(j,1);
-    Bnj = rxj*bey - ryj*bex;
-    Cnj = -Cn;
-    Dnj = -Dn;
-    Btj = rxj*mey - ryj*mex;
+    F_FLOAT rxj = b1xi + 0.5*s1x - x(j,0);
+    F_FLOAT ryj = b1yi + 0.5*s1y - x(j,1);
 
-    Nnj = nprefac*(An*Cnj*chidiff3 + (Bnj*Cnj+An*Dnj)*chidiff2 + Bnj*Dnj*chidiff);
-    Ntj = -Btj*Ftmag;
+    F_FLOAT Bnj = rxj*bey - ryj*bex;
+    F_FLOAT Cnj = -Cn;
+    F_FLOAT Dnj = -Dn;
+    F_FLOAT Btj = rxj*mey - ryj*mex;
+
+    F_FLOAT Nnj = nprefac*(An*Cnj*chidiff3 + (Bnj*Cnj+An*Dnj)*chidiff2 + Bnj*Dnj*chidiff);
+    F_FLOAT Ntj = -Btj*Ftmag;
     torque_j = Nnj + Ntj - torquedamp;
   }
 
-  //Update chi1, chi2
-  hmin = MIN(min_thickness(i), min_thickness(j));
+  // Update chi1, chi2
+  F_FLOAT hmin = MIN(min_thickness(i), min_thickness(j));
   if (HISTORYUPDATE){
     F_FLOAT c1, c2;
     c1 = d_firsthistory(i,size_history*jj+8);
@@ -1026,10 +1035,10 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_kokkos(int i, int j, int 
 
 template<class DeviceType>
 KOKKOS_INLINE_FUNCTION
-void PairGranHopkinsKokkos<DeviceType>::update_chi(F_FLOAT kn0, F_FLOAT kt0, F_FLOAT Dn, F_FLOAT Cn, 
-                                                   F_FLOAT Dt, F_FLOAT Ct, F_FLOAT hmin, F_FLOAT &chi1, 
+void PairGranHopkinsKokkos<DeviceType>::update_chi(F_FLOAT kn0, F_FLOAT kt0, F_FLOAT Dn, F_FLOAT Cn,
+                                                   F_FLOAT Dt, F_FLOAT Ct, F_FLOAT hmin, F_FLOAT &chi1,
                                                    F_FLOAT &chi2) const
-{ 
+{
   F_FLOAT sig_n1 = kn0*(Dn + Cn*chi1);
   F_FLOAT sig_s1 = kt0*(Dt + Ct*chi1);
   F_FLOAT sig_n2 = kn0*(Dn + Cn*chi2);
@@ -1124,7 +1133,7 @@ void PairGranHopkinsKokkos<DeviceType>::update_chi(F_FLOAT kn0, F_FLOAT kt0, F_F
       }
     }
   }
-    
+
   //Check for 'cohesion' shear failure at chi2
   //Top branch of envelope
   if (sig_s2 > tanphi*sig_n2 - tanphi*sig_t){
@@ -1257,4 +1266,3 @@ template class PairGranHopkinsKokkos<LMPDeviceType>;
 template class PairGranHopkinsKokkos<LMPHostType>;
 #endif
 }
-

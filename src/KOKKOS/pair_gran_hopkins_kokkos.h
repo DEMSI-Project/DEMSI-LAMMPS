@@ -170,6 +170,7 @@ class PairGranHopkinsKokkos : public PairGranHopkins {
 
  protected:
   typename AT::t_x_array_randomread x;
+  typename AT::t_float_1d_randomread orientation;
   typename AT::t_v_array_randomread v;
   typename AT::t_v_array_randomread omega;
   typename AT::t_f_array f;
