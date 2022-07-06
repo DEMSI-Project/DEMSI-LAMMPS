@@ -83,6 +83,11 @@ NPairStyle(half/size/bin/kk/device,
            NPairKokkosHalfSizeBinDeviceTri,
            NP_HALF | NP_SIZE | NP_BIN | NP_KOKKOS_DEVICE | NP_NEWTON | NP_NEWTOFF | NP_TRI)
 
+typedef NPairKokkos<LMPDeviceType,0,0,0,0> NPairKokkosFullSizeBinDevice;
+NPairStyle(full/size/bin/kk/device,
+           NPairKokkosFullSizeBinDevice,
+           NP_FULL | NP_SIZE | NP_BIN | NP_KOKKOS_DEVICE | NP_NEWTON | NP_NEWTOFF | NP_ORTHO | NP_TRI);
+
 #else
 
 #ifndef LMP_NPAIR_KOKKOS_H
