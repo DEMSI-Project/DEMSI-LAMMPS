@@ -138,7 +138,9 @@ class AtomVecDemsiKokkos : public AtomVecKokkos {
   double *coriolis;
   double **ocean_vel;
   double **bvector;
-  double ** vn;
+  double **vn;
+  int *oldproc;
+  int *newproc;
   int radvary;
 
   int **nspecial;
@@ -196,6 +198,10 @@ class AtomVecDemsiKokkos : public AtomVecKokkos {
   HAT::t_float_2d h_bvector;
   DAT::t_v_array d_vn;
   HAT::t_v_array h_vn;
+  DAT::t_int_1d d_oldproc;
+  HAT::t_int_1d h_oldproc;
+  DAT::t_int_1d d_newproc;
+  HAT::t_int_1d h_newproc;
 
   DAT::t_int_2d d_nspecial;
   HAT::t_int_2d h_nspecial;

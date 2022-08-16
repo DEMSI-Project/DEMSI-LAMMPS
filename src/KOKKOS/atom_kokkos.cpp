@@ -91,7 +91,9 @@ AtomKokkos::~AtomKokkos()
   memoryKK->destroy_kokkos(k_coriolis,coriolis);
   memoryKK->destroy_kokkos(k_ocean_vel,ocean_vel);
   memoryKK->destroy_kokkos(k_bvector,bvector);
-  memoryKK->destroy_kokkos(k_vn);
+  memoryKK->destroy_kokkos(k_vn,vn);
+  memoryKK->destroy_kokkos(k_oldproc,oldproc);
+  memoryKK->destroy_kokkos(k_newproc,newproc);
 
   // SPIN package
   memoryKK->destroy_kokkos(k_sp, sp);
