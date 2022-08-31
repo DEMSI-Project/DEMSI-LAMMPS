@@ -50,8 +50,9 @@ class PairGranHopkinsKokkos : public PairGranHopkins {
   KOKKOS_INLINE_FUNCTION
   void operator()(TagPairGranHopkinsCompute<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE,EVFLAG>, const int, EV_FLOAT &ev) const;
 
+#ifndef KOKKOS_ENABLE_CUDA
   KOKKOS_INLINE_FUNCTION
-  void demsi_single_bond(int,
+  void single_bond(int,
 		   int,
 		   int,
 		   F_FLOAT &fx,
@@ -62,6 +63,7 @@ class PairGranHopkinsKokkos : public PairGranHopkins {
 		   F_FLOAT &fyt,
 		   F_FLOAT &torque_i,
 		   F_FLOAT &torque_j);
+#endif
 
   template<int NEIGHFLAG, int NEWTON_PAIR, int HISTORYUPDATE>
   KOKKOS_INLINE_FUNCTION
