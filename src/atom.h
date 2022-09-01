@@ -162,6 +162,30 @@ class Atom : protected Pointers {
   double *rho, *drho, *esph, *desph, *cv;
   double **vest;
 
+  // DEMSI
+  
+  double **forcing;
+  double *orientation;
+  double *momentOfInertia;
+  double *mean_thickness;
+  double *min_thickness;
+  double *ridgingIceThickness;
+  double *ridgingIceThicknessWeight;
+  double *netToGrossClosingRatio;
+  double *changeEffectiveElementArea;
+  double *ice_area;
+  double *iceConcentration;
+  double *coriolis;
+  double **ocean_vel;
+  double **bvector;
+  double **vn;
+
+  // AMOEBA package
+
+  int *nspecial15;              // # of 1-5 neighs
+  tagint **special15;           // IDs of 1-5 neighs of each atom
+  int maxspecial15;             // special15[nlocal][maxspecial15]
+
   // DIELECTRIC package
 
   double *area, *ed, *em, *epsilon, *curvature, *q_unscaled;
@@ -199,10 +223,18 @@ class Atom : protected Pointers {
   int contact_radius_flag, smd_data_9_flag, smd_stress_flag;
   int eff_plastic_strain_flag, eff_plastic_strain_rate_flag;
 
+  // AMOEBA package
+
+  int nspecial15_flag;
+
   // Peridynamics scale factor, used by dump cfg
 
   double pdscale;
 
+  // DEMSI
+  
+  int demsi_flag;
+  
   // DIELECTRIC package
 
   int dielectric_flag;
@@ -301,6 +333,7 @@ class Atom : protected Pointers {
   void init();
   void setup();
 
+  std::string get_style();
   AtomVec *style_match(const char *);
   void modify_params(int, char **);
   void tag_check();
@@ -334,7 +367,8 @@ class Atom : protected Pointers {
   int shape_consistency(int, double &, double &, double &);
 
   void add_molecule(int, char **);
-  int find_molecule(char *);
+  int find_molecule(const char *);
+  std::vector<Molecule *>get_molecule_by_id(const std::string &);
   void add_molecule_atom(class Molecule *, int, int, tagint);
 
   void first_reorder();
