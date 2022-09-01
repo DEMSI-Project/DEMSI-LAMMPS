@@ -53,9 +53,10 @@ class FixNeighHistoryKokkos : public FixNeighHistory {
   typename DAT::tdual_int_2d k_firstflag;
   typename DAT::tdual_float_2d k_firstvalue;
 
- private:
   typename ArrayTypes<DeviceType>::t_int_2d d_firstflag;
   typename ArrayTypes<DeviceType>::t_float_2d d_firstvalue;
+
+ private:
 
   typename ArrayTypes<DeviceType>::tdual_int_1d k_npartner;
   typename ArrayTypes<DeviceType>::tdual_tagint_2d k_partner;

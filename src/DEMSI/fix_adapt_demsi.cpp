@@ -24,7 +24,7 @@
 #include "pair.h"
 #include "pair_hybrid.h"
 #include "kspace.h"
-#include "fix_store_peratom.h"
+#include "fix_store.h"
 #include "input.h"
 #include "variable.h"
 #include "respa.h"
@@ -262,7 +262,7 @@ void FixAdaptDEMSI::post_constructor()
     strcat(id_fix_diam,"_FIX_STORE_DIAM");
     newarg[0] = id_fix_diam;
     modify->add_fix(6,newarg);
-    fix_diam = (FixStorePeratom *) modify->fix[modify->nfix-1];
+    fix_diam = (FixStore *) modify->fix[modify->nfix-1];
 
     if (fix_diam->restart_reset) fix_diam->restart_reset = 0;
     else {
@@ -285,7 +285,7 @@ void FixAdaptDEMSI::post_constructor()
     strcat(id_fix_chg,"_FIX_STORE_CHG");
     newarg[0] = id_fix_chg;
     modify->add_fix(6,newarg);
-    fix_chg = (FixStorePeratom *) modify->fix[modify->nfix-1];
+    fix_chg = (FixStore *) modify->fix[modify->nfix-1];
 
     if (fix_chg->restart_reset) fix_chg->restart_reset = 0;
     else {
@@ -465,12 +465,12 @@ void FixAdaptDEMSI::init()
   if (id_fix_diam) {
     int ifix = modify->find_fix(id_fix_diam);
     if (ifix < 0) error->all(FLERR,"Could not find fix adapt storage fix ID");
-    fix_diam = (FixStorePeratom *) modify->fix[ifix];
+    fix_diam = (FixStore *) modify->fix[ifix];
   }
   if (id_fix_chg) {
     int ifix = modify->find_fix(id_fix_chg);
     if (ifix < 0) error->all(FLERR,"Could not find fix adapt storage fix ID");
-    fix_chg = (FixStorePeratom *) modify->fix[ifix];
+    fix_chg = (FixStore *) modify->fix[ifix];
   }
 
   if (strstr(update->integrate_style,"respa"))

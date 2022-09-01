@@ -28,7 +28,7 @@ class NeighRequest : protected Pointers {
   friend class NPairSkipIntel;
   friend class FixIntel;
 
- protected:
+ public:
   int index;                 // index of which neigh request this is
   void *requestor;           // class that made request
   int requestor_instance;    // instance of that class (only Fix, Compute, Pair)
