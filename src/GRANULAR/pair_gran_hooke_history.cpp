@@ -38,14 +38,15 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-PairGranHookeHistory::PairGranHookeHistory(LAMMPS *lmp) : Pair(lmp)
+PairGranHookeHistory::PairGranHookeHistory(LAMMPS *lmp, int _size_history) : Pair(lmp),
+  size_history(_size_history)
 {
   single_enable = 1;
   no_virial_fdotr_compute = 1;
   centroidstressflag = CENTROID_NOTAVAIL;
   finitecutflag = 1;
   history = 1;
-  size_history = 3;
+//  size_history = 3;
 
   single_extra = 10;
   svector = new double[10];
