@@ -81,6 +81,7 @@ AtomKokkos::~AtomKokkos()
   AtomKokkos::map_delete();
 
   // USER-DEMSI package
+  
   memoryKK->destroy_kokkos(k_orientation,orientation);
   memoryKK->destroy_kokkos(k_momentOfInertia,momentOfInertia);
   memoryKK->destroy_kokkos(k_mean_thickness,mean_thickness);

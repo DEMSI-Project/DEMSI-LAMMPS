@@ -13,21 +13,21 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(nve/sphere/demsi,FixNVESphereDemsi)
+FixStyle(nve/sphere/demsi_implicit_atmos,FixNVESphereDemsiImplicitAtmos)
 
 #else
 
-#ifndef LMP_FIX_NVE_SPHERE_DEMSI_H
-#define LMP_FIX_NVE_SPHERE_DEMSI_H
+#ifndef LMP_FIX_NVE_SPHERE_DEMSI_IMPLICIT_ATMOS_H
+#define LMP_FIX_NVE_SPHERE_DEMSI_IMPLICIT_ATMOS_H
 
 #include "fix_nve.h"
 
 namespace LAMMPS_NS {
 
-class FixNVESphereDemsi : public FixNVE {
+class FixNVESphereDemsiImplicitAtmos : public FixNVE {
  public:
-  FixNVESphereDemsi(class LAMMPS *, int, char **);
-  virtual ~FixNVESphereDemsi() {}
+  FixNVESphereDemsiImplicitAtmos(class LAMMPS *, int, char **);
+  virtual ~FixNVESphereDemsiImplicitAtmos() {}
   void init();
   virtual void initial_integrate(int);
   virtual void final_integrate();
@@ -36,6 +36,10 @@ class FixNVESphereDemsi : public FixNVE {
   // if they are location/temperature dependent, they would have
   // to be made into per-particle properties)
   double ocean_drag, ocean_density;
+  double atmos_drag, atmos_density;
+  bool drag_force_integration_flag;
+  int time_integration_flag;
+  double Hugoniot_Vel_Jump;
 
  protected:
   double inertia;

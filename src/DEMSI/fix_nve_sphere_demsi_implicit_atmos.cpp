@@ -14,7 +14,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include "fix_nve_sphere_demsi.h"
+#include "fix_nve_sphere_demsi_implicit_atmos.h"
 #include "atom.h"
 #include "domain.h"
 #include "atom_vec.h"
@@ -34,10 +34,10 @@ enum{NODLM,DLM};
 
 /* ---------------------------------------------------------------------- */
 
-FixNVESphereDemsi::FixNVESphereDemsi(LAMMPS *lmp, int narg, char **arg) :
+FixNVESphereDemsiImplicitAtmos::FixNVESphereDemsiImplicitAtmos(LAMMPS *lmp, int narg, char **arg) :
   FixNVE(lmp, narg, arg)
 {
-  if (narg < 3) error->all(FLERR,"Illegal fix nve/sphere/demsi command");
+  if (narg < 3) error->all(FLERR,"Illegal fix nve/sphere/demsi_implicit_atmos command");
 
   time_integrate = 1;
 
@@ -46,16 +46,20 @@ FixNVESphereDemsi::FixNVESphereDemsi(LAMMPS *lmp, int narg, char **arg) :
   inertia = 0.5;
 
   ocean_density = ocean_drag = 0.;
+  atmos_density = atmos_drag = 0.;
+  drag_force_integration_flag = 0;
+  time_integration_flag = 0;
+  Hugoniot_Vel_Jump = 0.;
 
   if (domain->dimension != 2)
-    error->all(FLERR,"Fix nve/sphere demsi requires 2d simulation");
+    error->all(FLERR,"Fix nve/sphere/demsi_implcit_atmos requires 2d simulation");
   if (!atom->demsi_flag)
-    error->all(FLERR,"Fix nve/sphere requires atom style demsi");
+    error->all(FLERR,"Fix nve/sphere/demsi_implcit_atmos requires atom style demsi");
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixNVESphereDemsi::init()
+void FixNVESphereDemsiImplicitAtmos::init()
 {
   FixNVE::init();
 
@@ -74,7 +78,7 @@ void FixNVESphereDemsi::init()
 
 /* ---------------------------------------------------------------------- */
 
-void FixNVESphereDemsi::initial_integrate(int /*vflag*/)
+void FixNVESphereDemsiImplicitAtmos::initial_integrate(int /*vflag*/)
 {
   double dtfm;
 
@@ -92,6 +96,8 @@ void FixNVESphereDemsi::initial_integrate(int /*vflag*/)
   double **ocean_vel = atom->ocean_vel;
   double **bvector = atom->bvector;
   double **forcing = atom->forcing;
+  double **vn = atom->vn;
+  double *mean_thickness = atom->mean_thickness;
 
   double D, vel_diff, m_prime;
   double a00, a01, a10, a11;
@@ -113,7 +119,7 @@ void FixNVESphereDemsi::initial_integrate(int /*vflag*/)
   for (int i = 0; i < nlocal; i++) {
     if (mask[i] & groupbit) {
       vel_diff = sqrt((ocean_vel[i][0]-v[i][0])*(ocean_vel[i][0]-v[i][0]) +
-                      (ocean_vel[i][1]-v[i][1])*(ocean_vel[i][1]-v[i][1]));
+          (ocean_vel[i][1]-v[i][1])*(ocean_vel[i][1]-v[i][1]));
       D = ice_area[i]*ocean_drag*ocean_density*vel_diff;
       m_prime = rmass[i]/dtf;
       a00 = a11 = m_prime+D;
@@ -135,14 +141,24 @@ void FixNVESphereDemsi::initial_integrate(int /*vflag*/)
 
       orientation[i] += dtv * omega[i][2];
 
+        vn[i][0] =     v[i][0];
+        vn[i][1] =     v[i][1];
+        vn[i][2] = omega[i][2];
+
     } // end if (mask[i] & groupbit)
 
+    if (!(mask[i]&groupbit)){
+          vn[i][0] =     vn[i][1] =     vn[i][2] = 0.;
+      torque[i][0] = torque[i][1] = torque[i][2] = 0.;
+//    omega[i][0] =  omega[i][1] =  omega[i][2] = 0.;
+    }
+ 
   } // end for (int i = 0; i < nlocal; i++)
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixNVESphereDemsi::final_integrate()
+void FixNVESphereDemsiImplicitAtmos::final_integrate()
 {
   double dtfm,dtirotate;
 
@@ -157,6 +173,8 @@ void FixNVESphereDemsi::final_integrate()
   double **ocean_vel = atom->ocean_vel;
   double **bvector = atom->bvector;
   double **forcing = atom->forcing;
+  double **vn = atom->vn;
+  double *mean_thickness = atom->mean_thickness;
 
   double *radius = atom->radius;
   int *mask = atom->mask;
@@ -176,29 +194,46 @@ void FixNVESphereDemsi::final_integrate()
   // update v,omega for all particles
   // d_omega/dt = torque / inertia
 
-  for (int i = 0; i < nlocal; i++) {
-    if (mask[i] & groupbit) {
+    for (int i = 0; i < nlocal; i++) {
+      if (mask[i] & groupbit) {
 
-      vel_diff = sqrt((ocean_vel[i][0]-v[i][0])*(ocean_vel[i][0]-v[i][0]) +
-                      (ocean_vel[i][1]-v[i][1])*(ocean_vel[i][1]-v[i][1]));
-      D = ice_area[i]*ocean_drag*ocean_density*vel_diff;
-      m_prime = rmass[i]/dtf;
-      a00 = a11 = m_prime+D;
-      a10 = rmass[i]*coriolis[i];
-      a01 = -a10;
+            v[i][0] = vn[i][0];
+            v[i][1] = vn[i][1];
+        omega[i][2] = vn[i][2];
 
-      b0 = m_prime*v[i][0] + f[i][0] + bvector[i][0] + forcing[i][0] + D*ocean_vel[i][0];
-      b1 = m_prime*v[i][1] + f[i][1] + bvector[i][1] + forcing[i][1] + D*ocean_vel[i][1];
+        vel_diff = sqrt((ocean_vel[i][0]-v[i][0])*(ocean_vel[i][0]-v[i][0]) +
+          (ocean_vel[i][1]-v[i][1])*(ocean_vel[i][1]-v[i][1]));
+        D = ice_area[i]*ocean_drag*ocean_density*vel_diff;
+        m_prime = rmass[i]/dtf;
+        a00 = a11 = m_prime+D;
+        a10 = rmass[i]*coriolis[i];
+        a01 = -a10;
 
-      detinv = 1.0/(a00*a11 - a01*a10);
-      v[i][0] = detinv*( a11*b0 - a01*b1);
-      v[i][1] = detinv*(-a10*b0 + a00*b1);
+        b0 = m_prime*v[i][0] + f[i][0] + bvector[i][0] + forcing[i][0] + D*ocean_vel[i][0];
+        b1 = m_prime*v[i][1] + f[i][1] + bvector[i][1] + forcing[i][1] + D*ocean_vel[i][1];
 
-      dtirotate = dtfrotate / momentOfInertia[i];
-      omega[i][2] += dtirotate * torque[i][2];
+        detinv = 1.0/(a00*a11 - a01*a10);
+        v[i][0] = detinv*( a11*b0 - a01*b1);
+        v[i][1] = detinv*(-a10*b0 + a00*b1);
 
-    } // end if (mask[i] & groupbit)
+        dtirotate = dtfrotate / momentOfInertia[i];
+        omega[i][2] += dtirotate * torque[i][2];
 
-  } // end for (int i = 0; i < nlocal; i++)
+      } // end if (mask[i] & groupbit)
 
-} // end void FixNVESphereDemsi::final_integrate()
+      if (!(mask[i]&groupbit)){
+            vn[i][0] =     vn[i][1] =     vn[i][2] = 0.;
+        torque[i][0] = torque[i][1] = torque[i][2] = 0.;
+//       omega[i][0] =  omega[i][1] =  omega[i][2] = 0.;
+      }
+ 
+    } // end for (int i = 0; i < nlocal; i++)
+
+    for (int i = 0; i < atom->nlocal; i++) {
+//      vn[i][0] =  omega[i][0]; // integral dLogV
+        vn[i][0] =  rmass[i];
+        vn[i][1] = torque[i][1]; // integral dLogS
+        vn[i][2] = torque[i][0]; // dMach
+    } // end for (int i = 0; i < atom->nlocal; i++)
+
+} // end void FixNVESphereDemsiImplicitAtmos::final_integrate()

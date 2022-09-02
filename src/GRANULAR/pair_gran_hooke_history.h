@@ -26,7 +26,6 @@ namespace LAMMPS_NS {
 
 class PairGranHookeHistory : public Pair {
  public:
-//  PairGranHookeHistory(class LAMMPS *);
   PairGranHookeHistory(class LAMMPS *, int _size_history=3);
   ~PairGranHookeHistory() override;
   void compute(int, int) override;

@@ -154,6 +154,21 @@ class Pair : protected Pointers {
   virtual void compute_middle() {}
   virtual void compute_outer(int, int) {}
 
+  virtual void single_bond(int, int, int,
+                           double& fx, double& fy,
+                           double& fxn, double& fyn,
+                           double& fxt, double& fyt,
+                           double& torque_i, double& torque_j) {
+    fx = 0.0;
+    fy = 0.0;
+    fxn = 0.0;
+    fyn = 0.0;
+    fxt = 0.0;
+    fyt = 0.0;
+    torque_i = 0.0;
+    torque_j = 0.0;
+  };
+
   virtual double single(int, int, int, int, double, double, double, double &fforce)
   {
     fforce = 0.0;
