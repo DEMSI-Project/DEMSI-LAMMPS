@@ -173,6 +173,8 @@ class Atom : protected Pointers {
   double **ocean_vel;
   double **bvector;
   double **vn;
+  int *oldproc;
+  int *newproc;
 
   // end of customization section
   // --------------------------------------------------------------------

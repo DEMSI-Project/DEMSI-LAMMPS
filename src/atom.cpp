@@ -215,6 +215,8 @@ Atom::Atom(LAMMPS *lmp) : Pointers(lmp)
   ocean_vel = nullptr;
   bvector = nullptr;
   vn = nullptr;
+  newproc = nullptr;
+  oldproc = nullptr;
 
   // end of customization section
   // --------------------------------------------------------------------
@@ -544,6 +546,8 @@ void Atom::peratom_create()
   add_peratom("coriolis",&coriolis,DOUBLE,0);
   add_peratom("ocean_vel",&ocean_vel,DOUBLE,1);
   add_peratom("bvector",&bvector,DOUBLE,1);
+  add_peratom("oldproc",&oldproc,INT,0);
+  add_peratom("newproc",&newproc,INT,0);
 
   // end of customization section
   // --------------------------------------------------------------------
