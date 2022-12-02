@@ -312,6 +312,34 @@ void PairGranHopkinsKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
   if (vflag_fdotr) pair_virial_fdotr_compute(this);
 
   copymode = 0;
+
+//#define SINGLE_BOND_BREAK
+#ifdef SINGLE_BOND_BREAK
+  bool bondBroke = false;
+  for (int ii = 0; ii < inum; ii++) {
+
+    int i = d_ilist[ii];
+    int itype = type[i];
+    int jnum = d_numneigh[i];
+
+    for (int jj = 0; jj < jnum; jj++) {
+      int j = d_neighbors(i,jj);
+      j &= NEIGHMASK;
+
+      if (d_firsthistory(i,size_history*jj) >= d_firsthistory(i,size_history*jj+1) and
+          update->ntimestep > 100) {
+        bondBroke = true;
+      }
+
+    }
+  }
+
+  if (bondBroke) {
+    sig_c0 = 1e30;
+    sig_t0 = 1e30;
+  }
+#endif
+
 }
 
 template<class DeviceType>
