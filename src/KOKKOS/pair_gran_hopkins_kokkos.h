@@ -259,6 +259,7 @@ class PairGranHopkinsKokkos : public PairGranHopkins {
 
   int neighflag;
   int nlocal,nall,eflag,vflag;
+  bool first_bond_break = false;
 
   // class storage to avoid strcmp in parallel code execution
   // or update->dt (ptr is not valid when update is copied to device)
