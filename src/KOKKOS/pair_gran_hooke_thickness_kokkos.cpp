@@ -97,6 +97,9 @@ void PairGranHookeThicknessKokkos<DeviceType>::init_style()
   if (neighflag == HALF || neighflag == HALFTHREAD) {
     neighbor->requests[irequest]->full = 0;
     neighbor->requests[irequest]->half = 1;
+  } else if (neighflag == FULL) {
+    neighbor->requests[irequest]->full = 1;
+    neighbor->requests[irequest]->half = 0;
   } else {
     error->all(FLERR,"Cannot use chosen neighbor list style with gran/hooke/kk");
   }
@@ -175,7 +178,7 @@ void PairGranHookeThicknessKokkos<DeviceType>::compute(int eflag_in, int vflag_i
         Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHookeThicknessCompute<HALF,0,0>>(0,inum),*this);
       }
     }
-  } else { // HALFTHREAD
+  } else if (lmp->kokkos->neighflag == HALFTHREAD) { // HALFTHREAD
     if (force->newton_pair) {
       if (vflag_atom) {
         Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHookeThicknessCompute<HALFTHREAD,1,2>>(0,inum),*this);
@@ -193,7 +196,25 @@ void PairGranHookeThicknessKokkos<DeviceType>::compute(int eflag_in, int vflag_i
 	Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHookeThicknessCompute<HALFTHREAD,0,0>>(0,inum),*this);
       }
     }
-  }
+  } else if (lmp->kokkos->neighflag == FULL) { // FULL
+    if (force->newton_pair) {
+      if (vflag_atom) {
+        Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHookeThicknessCompute<FULL,1,2>>(0,inum),*this);
+      } else if (vflag_global) {
+	Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagPairGranHookeThicknessCompute<FULL,1,1>>(0,inum),*this, ev);
+      } else {
+        Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHookeThicknessCompute<FULL,1,0>>(0,inum),*this);
+      }
+    } else {
+      if (vflag_atom) {
+	Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHookeThicknessCompute<FULL,0,2>>(0,inum),*this);
+      } else if (vflag_global) {
+	Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagPairGranHookeThicknessCompute<FULL,0,1>>(0,inum),*this, ev);
+      } else {
+	Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHookeThicknessCompute<FULL,0,0>>(0,inum),*this);
+      }
+    }
+  } // lmp->kokkos->neighflag
 
   if (vflag_global) {
     virial[0] += ev.v[0];
@@ -327,7 +348,7 @@ void PairGranHookeThicknessKokkos<DeviceType>::operator()(TagPairGranHookeThickn
       torquey_i -= irad*tor2;
       torquez_i -= irad*tor3;
       
-      if (NEWTON_PAIR || j < nlocal) {
+      if (NEIGHFLAG != FULL and (NEWTON_PAIR || j < nlocal)) {
         a_f(j,0) -= fx;
         a_f(j,1) -= fy;
         a_f(j,2) -= fz;
