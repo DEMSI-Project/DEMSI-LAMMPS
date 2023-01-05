@@ -98,7 +98,6 @@ template <class DeviceType>
 KOKKOS_INLINE_FUNCTION
 void FixNVESphereDemsiKokkos<DeviceType>::initial_integrate_item(const int i) const
 {
-
   const double dtfrotate = dtf;
 
   if (mask(i) & groupbit) {

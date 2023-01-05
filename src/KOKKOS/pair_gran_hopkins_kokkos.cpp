@@ -15,13 +15,13 @@
    ------------------------------------------------------------------------- */
 
 //For bonded pairs:
-// history[0,1]: chi1, chi2
+// history[0,1]: chi1, chi2 (Redefined as D1, D2 for the damage model)
 // history[2-9]: x,y components of s1i, s2i, s1j, s2j
 // history[10]: bond length
 // history[11]: bond thickness, h
 
 //For unbonded pairs:
-// history[0,1]: chi1, chi2
+// history[0,1]: chi1, chi2 (Redefined as D1, D2 for the damage model)
 // history[2,3]: accumulated tangential displacement at contact, x and y
 // history[4]  : delta_0: initial overlap at bond break
 // history[5]  : previousForceConv
@@ -31,6 +31,7 @@
 // history[9]  :
 // history[10] :
 
+#include <cmath>
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -133,8 +134,7 @@ void PairGranHopkinsKokkos<DeviceType>::init_style()
 
 /* ---------------------------------------------------------------------- */
 template<class DeviceType>
-void PairGranHopkinsKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
-{
+void PairGranHopkinsKokkos<DeviceType>::compute(int eflag_in, int vflag_in) {
   copymode = 1;
 
   eflag = eflag_in;
@@ -453,7 +453,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_single_bond(int i,
 
   if (hopkinsDamage) {
     // Hopkins model with damage
-    if (d_firsthistory(i,size_history*jj) >= 1.0 && d_firsthistory(i,size_history*jj+1) >= 1.0) {
+    if ((d_firsthistory(i,size_history*jj) >= 1.0 && d_firsthistory(i,size_history*jj+1) >= 1.0) || d_firsttouch(i,jj) == 0 || !d_firsttouch(i,jj)) {
       // Un-bonded (damage at all integration points is >= 1)
       compute_nonbonded_kokkos<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE>(i,j,jj,
 								  fx,fy,
@@ -470,7 +470,6 @@ void PairGranHopkinsKokkos<DeviceType>::compute_single_bond(int i,
 							       torque_i,torque_j,
 							       modifyState);
     }
-
   } else {
     // Hopkins model without damage
     if (d_firsthistory(i,size_history*jj) >= d_firsthistory(i,size_history*jj+1)) {
@@ -736,9 +735,7 @@ void PairGranHopkinsKokkos<DeviceType>::hopkins_ridging_model(bool modifyOtherEl
 
     // use elastic/plastic force if elastic/plastic force is less than elastic
     // force and ridging is positive and converging
-    if (ridgingForce < elasticForce and
-	plasticOverlapRidging > 0.0 and
-	plasticConvergenceRidging > 0.0) {
+    if (ridgingForce < elasticForce and plasticOverlapRidging > 0.0 and plasticConvergenceRidging > 0.0) {
 
       // use ridging force
       ridgeSlip = plasticOverlapRidging;
@@ -790,197 +787,213 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i,
 								 F_FLOAT &torque_j,
 								 bool modifyState) const {
 
-   F_FLOAT r, rinv, nx, ny, radmin;
-   F_FLOAT vnnr, vnx, vny;
-   F_FLOAT wrz, vtrx, vtry, vtx, vty, vrel;
-   F_FLOAT delta, delta_dot;
+  F_FLOAT r, rinv, nx, ny, radmin;
+  F_FLOAT vnnr, vnx, vny;
+  F_FLOAT wrz, vtrx, vtry, vtx, vty, vrel;
+  F_FLOAT delta, delta_dot;
 
-   F_FLOAT sig_c = 0, hmin;
-   F_FLOAT hprime, kp, kr, ke, L, kt0;
-   F_FLOAT num, denom, fnmag_plastic, fnmag_elastic, fnmag;
-   F_FLOAT ncrossF;
+  F_FLOAT sig_c = 0, hmin;
+  F_FLOAT hprime, kp, kr, ke, L, kt0;
+  F_FLOAT num, denom, fnmag_plastic, fnmag_elastic, fnmag;
+  F_FLOAT ncrossF;
 
-   F_FLOAT ndisp, dispmag, scalefac;
-   F_FLOAT ftmag, ftcrit;
-   F_FLOAT var1, var2, disp_tx, disp_ty, prjmag;
+  F_FLOAT ndisp, dispmag, scalefac;
+  F_FLOAT ftmag, ftcrit;
+  F_FLOAT var1, var2, disp_tx, disp_ty, prjmag;
 
-   X_FLOAT delx = x(i,0) - x(j,0);
-   X_FLOAT dely = x(i,1) - x(j,1);
-   X_FLOAT rsq = delx*delx + dely*dely;
-   F_FLOAT radsum = radius[i] + radius[j];
+  X_FLOAT delx = x(i,0) - x(j,0);
+  X_FLOAT dely = x(i,1) - x(j,1);
+  X_FLOAT rsq = delx*delx + dely*dely;
+  F_FLOAT radsum = radius[i] + radius[j];
 
-   if (rsq >= radsum*radsum){
-     if (modifyState) {
-       d_firsttouch(i,jj) = 0;
-       for (int k = 0; k < size_history; k++) {
-	 d_firsthistory(i,size_history*jj+k) = 0;
-       }
-     }
-     fx = fy = 0;
-     fnx = fny = 0;
-     ftx = fty = 0;
-     torque_i = torque_j = 0;
-   }
-   else{
-     if (modifyState) {
-       if (!d_firsttouch(i,jj)){ //If this is first contact
-	 d_firsttouch(i,jj) = 1;
-	 for (int k = 2; k < size_history; k++) {
-	   d_firsthistory(i,size_history*jj+k) = 0;
-	 }
-       }
-     }
+  if (rsq >= radsum*radsum) {
+    if (modifyState) {
+      d_firsttouch(i,jj) = 0;
 
-     r = sqrt(rsq);
-     rinv = 1.0/r;
-     nx = delx/r;
-     ny = dely/r;
+      for (int k = 2; k < size_history; k++) {
+	      d_firsthistory(i,size_history*jj+k) = 0;
+      }
 
-     radmin = MIN(radius[i],radius[j]);
+      if (hopkinsDamage) {
+        // If we are in the ridging contact model then set damage to 1
+        d_firsthistory(i,size_history*jj+0) = 1;
+        d_firsthistory(i,size_history*jj+1) = 1;
+      }
+    } 
+    fx = fy = 0;
+    fnx = fny = 0;
+    ftx = fty = 0;
+    torque_i = torque_j = 0;
+  } else {
+    if (modifyState) {
+      if (!d_firsttouch(i,jj)) { //If this is first contact
+	      d_firsttouch(i,jj) = 1;
+	      for (int k = 2; k < size_history; k++) {
+	        d_firsthistory(i,size_history*jj+k) = 0;
+	      }
+        if (hopkinsDamage) {
+          // If we are in the ridging contact model then set damage to 1
+          d_firsthistory(i,size_history*jj+0) = 1;
+          d_firsthistory(i,size_history*jj+1) = 1;
+        }
+      }
+    }
 
-     //L = 2*radmin*(1+(abs(radius[i] - radius[j])/r));
-     L = (4.0 * radius[i] * radius[j]) / (radius[i] + radius[j]);
+    r = sqrt(rsq);
+    rinv = 1.0/r;
+    nx = delx/r;
+    ny = dely/r;
 
-     // relative translational velocity
-     V_FLOAT vrx = v(i,0) - v(j,0);
-     V_FLOAT vry = v(i,1) - v(j,1);
+    radmin = MIN(radius[i],radius[j]);
 
-     delta = radsum - r - d_firsthistory(i,size_history*jj+4);
-     if (delta < 0) return ; //delta = 0;
+    //L = 2*radmin*(1+(abs(radius[i] - radius[j])/r));
+    L = (4.0 * radius[i] * radius[j]) / (radius[i] + radius[j]);
 
-     // Compute tangential force
-     // normal component of relative translational velocity
-     vnnr = vrx*nx + vry*ny;
-     vnx = nx*vnnr;
-     vny = ny*vnnr;
+    // relative translational velocity
+    V_FLOAT vrx = v(i,0) - v(j,0);
+    V_FLOAT vry = v(i,1) - v(j,1);
 
-     // subtract to compute tangential component of relative translational velocity
-     vtrx = vrx - vnx;
-     vtry = vry - vny;
+    delta = radsum - r - d_firsthistory(i,size_history*jj+4);
+    if (delta < 0) return ; //delta = 0;
 
-     // total relative tangential velocities at contact
-     wrz = radius[i]*omega(i,2) + radius[j]*omega(j,2);
-     vtx = vtrx + ny*wrz;
-     vty = vtry - nx*wrz;
+    // Compute tangential force
+    // normal component of relative translational velocity
+    vnnr = vrx*nx + vry*ny;
+    vnx = nx*vnnr;
+    vny = ny*vnnr;
 
-     vrel = vtx*vtx + vty*vty;
-     vrel = sqrt(vrel);
+    // subtract to compute tangential component of relative translational velocity
+    vtrx = vrx - vnx;
+    vtry = vry - vny;
 
-     delta_dot = -vnnr;
+    // total relative tangential velocities at contact
+    wrz = radius[i]*omega(i,2) + radius[j]*omega(j,2);
+    vtx = vtrx + ny*wrz;
+    vty = vtry - nx*wrz;
 
-     F_FLOAT contactForce;
+    vrel = vtx*vtx + vty*vty;
+    vrel = sqrt(vrel);
 
-     if (type(i) == 2 || type(j) == 2){
-       F_FLOAT elasticStiffness;
-       F_FLOAT elasticDamping;
-       int iceIndex;
-       if (type(i) == 1) iceIndex = i;
-       else iceIndex = j;
-       elastic_stiffness(mean_thickness(iceIndex),
-			 mean_thickness(iceIndex),
-			 radius(i),
-			 radius(j),
-			 rmass(i),
-			 rmass(j),
-			 L,
-			 elasticStiffness,
-			 elasticDamping);
-       contactForce = (elasticStiffness*delta + elasticDamping*delta_dot) * L;
-       kt0 = Gmod/L*mean_thickness(iceIndex);
-     }
-     else{
-       kt0 = Gmod/L*(1/(1/mean_thickness(i) + 1/mean_thickness(j)));
-       F_FLOAT particleRadius = 5000.0;
+    delta_dot = -vnnr;
 
-       F_FLOAT previousForce = d_firsthistory(i,size_history*jj+5);
-       F_FLOAT ridgeSlip     = d_firsthistory(i,size_history*jj+6);
-       F_FLOAT ridgeSlipUsed = d_firsthistory(i,size_history*jj+7);
+    F_FLOAT contactForce;
 
-       hopkins_ridging_model(
-	   NEWTON_PAIR || j < nlocal,
-	   modifyState,
-           delta,
-           delta_dot,
-           iceConcentration(i),
-           iceConcentration(j),
-           mean_thickness(i),
-           mean_thickness(j),
-           radius(i),
-           radius(j),
-           rmass(i),
-           rmass(j),
-           ridgingIceThickness(i),
-           ridgingIceThickness(j),
-           ridgingIceThicknessWeight(i),
-           ridgingIceThicknessWeight(j),
-           netToGrossClosingRatio(i),
-           netToGrossClosingRatio(j),
-           changeEffectiveElementArea(i),
-           changeEffectiveElementArea(j),
-           particleRadius,
-           plasticFrictionCoeff,
-           plasticHardeningCoeff,
-           exponentialIceStrengthCoeff,
-           L,
-           ridgeSlip,
-           ridgeSlipUsed,
-           previousForce,
-           contactForce);
-       if (HISTORYUPDATE and modifyState){
-         d_firsthistory(i,size_history*jj+5) = previousForce;
-         d_firsthistory(i,size_history*jj+6) = ridgeSlip;
-         d_firsthistory(i,size_history*jj+7) = ridgeSlipUsed;
-       }
-     }
+    if (type(i) == 2 || type(j) == 2) {
+      F_FLOAT elasticStiffness;
+      F_FLOAT elasticDamping;
+      
+      int iceIndex;
+      if (type(i) == 1) iceIndex = i;
+      else iceIndex = j;
+      
+      elastic_stiffness(mean_thickness(iceIndex),
+			                  mean_thickness(iceIndex),
+			                  radius(i),
+			                  radius(j),
+			                  rmass(i),
+			                  rmass(j),
+			                  L,
+			                  elasticStiffness,
+			                  elasticDamping);
 
-     fnx = contactForce*nx;
-     fny = contactForce*ny;
+      contactForce = (elasticStiffness*delta + elasticDamping*delta_dot) * L;
+      kt0 = Gmod/L*mean_thickness(iceIndex);
+    } else {
+      kt0 = Gmod/L*(1/(1/mean_thickness(i) + 1/mean_thickness(j)));
+      F_FLOAT particleRadius = 5000.0;
 
-     // update tangential displacement, rotate if needed
-     if (HISTORYUPDATE and modifyState){
-       disp_tx = d_firsthistory(i,size_history*jj+2);
-       disp_ty = d_firsthistory(i,size_history*jj+3);
-       ndisp = nx*disp_tx + ny*disp_ty; //Tangential displacement in normal direction
-       if (fabs(ndisp) > EPSILON){
-         dispmag = sqrt(disp_tx*disp_tx + disp_ty*disp_ty);
-         //Remove component along normal direction
-         disp_tx -= ndisp*nx;
-         disp_ty -= ndisp*ny;
+      F_FLOAT previousForce = d_firsthistory(i,size_history*jj+5);
+      F_FLOAT ridgeSlip     = d_firsthistory(i,size_history*jj+6);
+      F_FLOAT ridgeSlipUsed = d_firsthistory(i,size_history*jj+7);
 
-         //Rescale to preserve magnitude
-         prjmag = sqrt(disp_tx*disp_tx + disp_ty*disp_ty);
-         if (prjmag > 0) scalefac = dispmag/prjmag;
-         else scalefac = 0;
-         disp_tx *= scalefac;
-         disp_ty *= scalefac;
-         d_firsthistory(i,size_history*jj+2) = disp_tx;
-         d_firsthistory(i,size_history*jj+3) = disp_ty;
-       }
-       d_firsthistory(i,size_history*jj+2) += vtx*update_dt;
-       d_firsthistory(i,size_history*jj+3) += vty*update_dt;
-     }
+      hopkins_ridging_model(NEWTON_PAIR || j < nlocal,
+	                          modifyState,
+                            delta,
+                            delta_dot,
+                            iceConcentration(i),
+                            iceConcentration(j),
+                            mean_thickness(i),
+                            mean_thickness(j),
+                            radius(i),
+                            radius(j),
+                            rmass(i),
+                            rmass(j),
+                            ridgingIceThickness(i),
+                            ridgingIceThickness(j),
+                            ridgingIceThicknessWeight(i),
+                            ridgingIceThicknessWeight(j),
+                            netToGrossClosingRatio(i),
+                            netToGrossClosingRatio(j),
+                            changeEffectiveElementArea(i),
+                            changeEffectiveElementArea(j),
+                            particleRadius,
+                            plasticFrictionCoeff,
+                            plasticHardeningCoeff,
+                            exponentialIceStrengthCoeff,
+                            L,
+                            ridgeSlip,
+                            ridgeSlipUsed,
+                            previousForce,
+                            contactForce);
 
-     disp_tx = d_firsthistory(i,size_history*jj+2);
-     disp_ty = d_firsthistory(i,size_history*jj+3);
-     dispmag =sqrt(disp_tx*disp_tx + disp_ty*disp_ty);
+      if (HISTORYUPDATE and modifyState) {
+        d_firsthistory(i,size_history*jj+5) = previousForce;
+        d_firsthistory(i,size_history*jj+6) = ridgeSlip;
+        d_firsthistory(i,size_history*jj+7) = ridgeSlipUsed;
+      }
+    }
 
-     // total tangential force
-     ftx = - (kt0*disp_tx + damp_tangential*vtx);
-     fty = - (kt0*disp_ty + damp_tangential*vty);
+    fnx = contactForce*nx;
+    fny = contactForce*ny;
 
-     ftmag = sqrt(ftx*ftx + fty*fty);
-     ftcrit = friction_tangential*fabs(contactForce);
-     if (ftmag > ftcrit){
-       if (dispmag != 0){
-         ftx *= ftcrit/ftmag;
-         fty *= ftcrit/ftmag;
-	 if (modifyState) {
-	   d_firsthistory(i,size_history*jj+2) = -(ftx + damp_tangential*vtx)/kt0;
-	   d_firsthistory(i,size_history*jj+3) = -(fty + damp_tangential*vty)/kt0;
-	 }
-       }
-       else ftx = fty = 0;
-     }
+    // update tangential displacement, rotate if needed
+    if (HISTORYUPDATE and modifyState) {
+      disp_tx = d_firsthistory(i,size_history*jj+2);
+      disp_ty = d_firsthistory(i,size_history*jj+3);
+      ndisp = nx*disp_tx + ny*disp_ty; //Tangential displacement in normal direction
+      if (fabs(ndisp) > EPSILON) {
+        dispmag = sqrt(disp_tx*disp_tx + disp_ty*disp_ty);
+        //Remove component along normal direction
+        disp_tx -= ndisp*nx;
+        disp_ty -= ndisp*ny;
+
+        //Rescale to preserve magnitude
+        prjmag = sqrt(disp_tx*disp_tx + disp_ty*disp_ty);
+        if (prjmag > 0) scalefac = dispmag/prjmag;
+        else scalefac = 0;
+        disp_tx *= scalefac;
+        disp_ty *= scalefac;
+        d_firsthistory(i,size_history*jj+2) = disp_tx;
+        d_firsthistory(i,size_history*jj+3) = disp_ty;
+      }
+
+      d_firsthistory(i,size_history*jj+2) += vtx*update_dt;
+      d_firsthistory(i,size_history*jj+3) += vty*update_dt;
+    }
+
+    disp_tx = d_firsthistory(i,size_history*jj+2);
+    disp_ty = d_firsthistory(i,size_history*jj+3);
+    dispmag =sqrt(disp_tx*disp_tx + disp_ty*disp_ty);
+
+    // total tangential force
+    ftx = - (kt0*disp_tx + damp_tangential*vtx);
+    fty = - (kt0*disp_ty + damp_tangential*vty);
+
+    ftmag = sqrt(ftx*ftx + fty*fty);
+    ftcrit = friction_tangential*fabs(contactForce);
+    
+    if (ftmag > ftcrit) {
+      if (dispmag != 0) {
+        ftx *= ftcrit/ftmag;
+        fty *= ftcrit/ftmag;
+	      if (modifyState) {
+	        d_firsthistory(i,size_history*jj+2) = -(ftx + damp_tangential*vtx)/kt0;
+	        d_firsthistory(i,size_history*jj+3) = -(fty + damp_tangential*vty)/kt0;
+	      }
+      } else {
+        ftx = fty = 0;
+      }
+    }
 
     //Apply forces
     fx = fnx + ftx;
@@ -991,10 +1004,9 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i,
     torque_i = -radius(i)*ncrossF;
 
     torque_j = 0;
-    if (NEWTON_PAIR || j < nlocal){
+    if (NEWTON_PAIR || j < nlocal) {
       torque_j = -radius(j)*ncrossF;
     }
-
   } // rsq < radsum*radsum
 }
 
@@ -1012,8 +1024,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_kokkos(int i,
 							      F_FLOAT &fty,
 							      F_FLOAT &torque_i,
 							      F_FLOAT &torque_j,
-							      bool modifyState) const
-{
+							      bool modifyState) const {
 
   //See design document for definitions of these variables
   F_FLOAT s1x, s1y, s2x, s2y, mx, my, mmag, mex, mey, bex, bey, rx, ry, rxj, ryj;
@@ -1068,6 +1079,9 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_kokkos(int i,
   mmag = sqrt(mx*mx + my*my);
   mex = mx/mmag;
   mey = my/mmag;
+
+  if (std::isnan(mex) || std::isnan(mey))
+    error->all(FLERR,"Bond unit vectors are NaN.");
 
   bex = mey;
   bey = -mex;
@@ -1170,7 +1184,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_kokkos(int i,
         F_FLOAT rij = sqrt(dx*dx + dy*dy);
         F_FLOAT delta_0 = radius(i) + radius(j) - rij;
         if (delta_0 < 0) delta_0 = 0;
-        for (int k = 0; k < size_history; ++k)
+        for (int k = 2; k < size_history; ++k)
           d_firsthistory(i,size_history*jj+k) = 0;
         d_firsthistory(i,size_history*jj+4) = delta_0;
     }
@@ -1191,8 +1205,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
 							      F_FLOAT &fty,
 							      F_FLOAT &torque_i,
 							      F_FLOAT &torque_j,
-							      bool modifyState) const
-{
+							      bool modifyState) const {
 
   //See design document for definitions of these variables
   F_FLOAT s1x, s1y, s2x, s2y, mx, my, mmag, mex, mey, bex, bey, rx, ry, rxj, ryj;
@@ -1201,7 +1214,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
 
   F_FLOAT area_bond, fdampx, fdampy, torquedamp;
   
-  if (HISTORYUPDATE and modifyState){
+  if (HISTORYUPDATE and modifyState) {
 
     // Update bond end points based on particle translations
     d_firsthistory(i,size_history*jj+2) += dt*v(i,0);
@@ -1234,9 +1247,36 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
 
   mx = d_firsthistory(i,size_history*jj+4) + 0.5*s2x - d_firsthistory(i,size_history*jj+2) - 0.5*s1x;
   my = d_firsthistory(i,size_history*jj+5) + 0.5*s2y - d_firsthistory(i,size_history*jj+3) - 0.5*s1y;
+  //std::cout << "mx: " << mx << std::endl;
+  //std::cout << "my: " << my << std::endl;
   mmag = sqrt(mx*mx + my*my);
   mex = mx/mmag;
   mey = my/mmag;
+
+  if (std::isnan(mex) || std::isnan(mey)) {
+    std::cout << "One of the bond unit vecotrs are NaN" << std::endl;
+    std::cout << "Home particle position: " << x(i,0) << ", " << x(i,1) << std::endl;
+    std::cout << "Neigh particle position: " << x(j,0) << ", " << x(j,1) << std::endl;
+    F_FLOAT delx = x(j,0) - x(i,0);
+    F_FLOAT dely = x(j,1) - x(i,1);
+    F_FLOAT rsq = delx*delx + dely*dely;
+    F_FLOAT radsum = radius[i] + radius[j];
+    std::cout << "Overlap: " << radsum - std::sqrt(rsq) << std::endl;
+    std::cout << "First touch: " << d_firsttouch(i,jj) << std::endl;
+    std::cout << "History 1: " << d_firsthistory(i,size_history*jj+0) << std::endl;
+    std::cout << "History 2: " << d_firsthistory(i,size_history*jj+1) << std::endl;
+    std::cout << "History 3: " << d_firsthistory(i,size_history*jj+2) << std::endl;
+    std::cout << "History 4: " << d_firsthistory(i,size_history*jj+3) << std::endl;
+    std::cout << "History 5: " << d_firsthistory(i,size_history*jj+4) << std::endl;
+    std::cout << "History 6: " << d_firsthistory(i,size_history*jj+5) << std::endl;
+    std::cout << "History 7: " << d_firsthistory(i,size_history*jj+6) << std::endl;
+    std::cout << "History 8: " << d_firsthistory(i,size_history*jj+7) << std::endl;
+    std::cout << "History 9: " << d_firsthistory(i,size_history*jj+8) << std::endl;
+    std::cout << "History 10: " << d_firsthistory(i,size_history*jj+9) << std::endl;
+    std::cout << "History 11: " << d_firsthistory(i,size_history*jj+10) << std::endl;
+    std::cout << "History 12: " << d_firsthistory(i,size_history*jj+11) << std::endl;
+    error->all(FLERR,"Bond unit vectors are NaN.");
+  }
 
   bex = mey;
   bey = -mex;
@@ -1252,6 +1292,28 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
 
   // Shear bond stiffness (G/L)
   F_FLOAT kt0 = Gmod/d_firsthistory(i,size_history*jj+10);
+
+  // Compressive failure stress
+  F_FLOAT sig_c;
+  if (strcmp_sig_c0_type_constant) {
+    sig_c = sig_c0;
+  } else if (strcmp_sig_c0_type_KovacsSodhi) {
+    F_FLOAT hmin = MIN(min_thickness(i), min_thickness(j));
+    sig_c = sig_c0*pow(hmin,(2.0/3.0)) * 1000.0;
+  } // else error case already handled previously
+
+  // Tensile failure stress
+  F_FLOAT sig_t;
+  if (strcmp_sig_t0_type_constant) {
+    sig_t = sig_t0;
+  } else if (strcmp_sig_t0_type_multiply_sig_c0) {
+    sig_t = sig_t0 * sig_c;
+  } // else error case already handled previously
+
+  // Ensure cohesion is set correctly
+  if (sig_t > cohesion/tanphi) {
+    error->all(FLERR,"Ratio of Cohesion over tan(frictionAngle) must be less than or equal to tensileBreakingStress");
+  }
 
   // Initialize the forces and moments
   Fnmag = 0;
@@ -1281,7 +1343,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
       F_FLOAT beta = std::abs(delta_s/delta_n);
 
       // Mixed-mode transition point
-      F_FLOAT beta_0 = kn0*(cohesion - sig_t0*tanphi)/(sig_t0*kt0);
+      F_FLOAT beta_0 = kn0*(cohesion - sig_t*tanphi)/(sig_t*kt0);
 
       // Equivalent displacement at damage onset
       F_FLOAT delta_e_0;
@@ -1290,7 +1352,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
         delta_e_0 = cohesion*std::sqrt(1.0 + beta*beta)/(beta*kt0 + kn0*tanphi);
       // Tensile failure
       } else {
-        delta_e_0 = sig_t0/kn0*std::sqrt(1.0 + beta*beta);
+        delta_e_0 = sig_t/kn0*std::sqrt(1.0 + beta*beta);
       }
 
       // No new damage 
@@ -1341,34 +1403,41 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
           d_firsthistory(i,size_history*jj+gp_num) = damage;
         }
       }
+
     // Bond in compression
     } else {
-      // Shear strength (can change in time)
-      F_FLOAT f_s = cohesion + kn0*delta_n*tanphi;
-
-      // Onset of damage in shear
-      F_FLOAT delta_s_0 = f_s/kt0;
-
-      // Normal force magnitude (not dependent on damage in compression)
+      // Normal stress
       F_FLOAT s_normal = kn0*delta_n;
+
+      // Check for compressive buckling failure
+      if (std::abs(s_normal) > sig_c) {
+        s_normal = std::copysign(sig_c, s_normal);
+        d_firsthistory(i,size_history*jj+gp_num) = 1.0;
+      }
+
+      // Normal force and moment (from normal force)
       Fnmag += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_normal;
+      Nn += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_normal*(rx*bey - ry*bex);
+
+      // Shear strength
+      F_FLOAT fs = cohesion + std::abs(s_normal)*tanphi;
       
-      // No new damage
+      // Onset of damage in shear
+      F_FLOAT delta_s_0 = fs/kt0;
+
+      // No new damage 
       if (std::abs(delta_s) <= delta_s_0) {
         // Shear force magnitude
         F_FLOAT s_shear = (1.0 - d_firsthistory(i,size_history*jj+gp_num))*kt0*delta_s;
         Ftmag += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_shear;
 
-        // Moment from normal force
-        Nn += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_normal*(rx*bey - ry*bex);
-
         // Moment from shear force
         Nt += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_shear*(rx*mey - ry*mex);
-      
-      // Bond has potential of new damage
+        
+      // Bond has potental for new damage
       } else {
-        // Shear displacement at failure
-        F_FLOAT delta_s_f = f_s/kt0 + 2.0*fractureG2c/f_s;
+        // Failure displacement
+        F_FLOAT delta_s_f = delta_s_0 + 2.0*fractureG2c/fs;
 
         // Get current damage value (damage is irreversible)
         F_FLOAT damage = std::min(1.0,std::max(delta_s_f*(std::abs(delta_s) - delta_s_0)/(std::abs(delta_s)*(delta_s_f - delta_s_0)), 
@@ -1378,21 +1447,38 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
         F_FLOAT s_shear = (1.0 - damage)*kt0*delta_s;
         Ftmag += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_shear;
 
-        // Moment from normal force
-        Nn += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_normal*(rx*bey - ry*bex);
-
         // Moment from shear force
         Nt += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_shear*(rx*mey - ry*mex);
-
+        
         // Update the damage history
         if (damage > d_firsthistory(i,size_history*jj+gp_num)) {
           d_firsthistory(i,size_history*jj+gp_num) = damage;
         }
       }
     }
+
+    // if (d_firsthistory(i,size_history*jj+gp_num) >= 1) {
+    //   std::cout << "\ngp num: " << gp_num << std::endl;
+    //   std::cout << "D: " << d_firsthistory(i,size_history*jj+gp_num) << std::endl;
+    //   std::cout << "x home: " << x(i,0) << ", " << x(i,1) << std::endl; 
+    //   std::cout << "x neigh: " << x(j,0) << ", " << x(j,1) << std::endl; 
+    //   std::cout << "dotprod*delta_n: " << dotprod*delta_n << std::endl;
+    //   std::cout << "delta_s: " << delta_s << std::endl; 
+    //   std::cout << "normal stress: " << kn0*delta_n << std::endl;
+    //   std::cout << "shear stress: " << kt0*delta_s << std::endl;
+    //   std::cout << "tensile fialure: " << sig_t << std::endl;
+    //   std::cout << "compressive failure: " << sig_c << std::endl;
+    //   std::cout << "Cohesion: " << cohesion << std::endl;
+    // }
+
     // Update integration point counter
     gp_num += 1;
   }
+
+  // if (d_firsthistory(i,size_history*jj) >= 1 && d_firsthistory(i,size_history*jj+1) >= 1) {
+  //   std::cout << "Both material points damaged" << std::endl;
+  //   error->all(FLERR,"Stop");
+  // }
 
   // Damping force
   area_bond = d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11);
@@ -1432,26 +1518,29 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
       // Shear stress (flipping sign for neighbor calc)
       F_FLOAT s_shear = -1.0*(1.0 - d_firsthistory(i,size_history*jj+gp_num))*kt0*delta_s;
 
+      // Normal stress (flipping sign for neighbor calc)
+      F_FLOAT s_normal;
+      if (dotprod*delta_n < 0.0) {
+        s_normal = -1.0*kn0*delta_n;
+        // Check for compressive buckling failure
+        if (std::abs(s_normal) > sig_c) {
+          s_normal = std::copysign(sig_c, s_normal);
+        }
+      } else {
+        s_normal = -1.0*(1.0 - d_firsthistory(i,size_history*jj+gp_num))*kn0*delta_n;
+      }
+
       // Moment arm
       rx = d_firsthistory(i,size_history*jj+2) + 0.5*s1x + 0.5*(1.0 - psi)*mx - x(j,0);
       ry = d_firsthistory(i,size_history*jj+3) + 0.5*s1y + 0.5*(1.0 - psi)*my - x(j,1);
-
-      // Normal stress (flipping sign for neighbor calc)
-      F_FLOAT s_normal;
-      // Bond in tension
-      if (dotprod*delta_n > 0.0) {
-        s_normal = -1.0*(1.0 - d_firsthistory(i,size_history*jj+gp_num))*kn0*delta_n;
-
-      // Bone in compression
-      } else {
-        s_normal = -1.0*kn0*delta_n;
-      }
 
       // Moment from normal force
       Nnj += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_normal*(rx*bey - ry*bex);
 
       // Moment from shear force
       Ntj += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_shear*(rx*mey - ry*mex);
+
+      gp_num += 1;
     }
     // Moment on neighbor particle with damping
     torque_j = Nnj + Ntj - torquedamp;
@@ -1472,7 +1561,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
           delta_0 = 0;
         }
 
-        for (int k = 0; k < size_history; ++k) {
+        for (int k = 2; k < size_history; ++k) {
           d_firsthistory(i,size_history*jj+k) = 0;
         }
 
@@ -1513,6 +1602,12 @@ void PairGranHopkinsKokkos<DeviceType>::update_chi(F_FLOAT kn0,
   } else if (strcmp_sig_t0_type_multiply_sig_c0) {
     sig_t = sig_t0 * sig_c;
   } // else error case already handled previously
+
+  //  if (std::abs(sig_n1) >= sig_t && std::abs(sig_n2) >= sig_t) {
+  //   std::cout << "sig_n1: " << sig_n1 << std::endl;
+  //   std::cout << "sig_n2: " << sig_n2 << std::endl;
+  //   error->all(FLERR,"Stop");
+  // }
 
   F_FLOAT denom;
   sig_t = -sig_t; //Somewhat against convention, tensile load is taken to be negative
