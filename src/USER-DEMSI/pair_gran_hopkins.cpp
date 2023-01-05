@@ -648,7 +648,7 @@ void PairGranHopkins::update_chi(double kn, double kt, double Dn, double Cn, dou
 
 void PairGranHopkins::settings(int narg, char **arg)
 {
-  if (narg != 15) error->all(FLERR,"Illegal pair_style command");
+  if (narg != 20) error->all(FLERR,"Illegal pair_style command");
 
   Emod = utils::numeric(FLERR,arg[0],false,lmp);
   poiss = utils::numeric(FLERR,arg[1],false,lmp);
@@ -665,6 +665,13 @@ void PairGranHopkins::settings(int narg, char **arg)
   plasticFrictionCoeff = utils::numeric(FLERR,arg[12],false,lmp);
   plasticHardeningCoeff = utils::numeric(FLERR,arg[13],false,lmp);
   exponentialIceStrengthCoeff = utils::numeric(FLERR,arg[14],false,lmp);
+  
+  // Additional items for Hopkins model with damage
+  hopkinsDamage = utils::numeric(FLERR,arg[15],false,lmp);
+  cohesion = utils::numeric(FLERR,arg[16],false,lmp);
+  fractureG1c = utils::numeric(FLERR,arg[17],false,lmp);
+  fractureG2c = utils::numeric(FLERR,arg[18],false,lmp);
+  fractureEta = utils::numeric(FLERR,arg[19],false,lmp);
 
   tanphi = tan(phi*MathConst::MY_PI/180.0);
   Gmod = Emod/(2*(1+poiss));

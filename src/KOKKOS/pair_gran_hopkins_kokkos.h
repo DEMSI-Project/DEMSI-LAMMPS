@@ -51,7 +51,7 @@ class PairGranHopkinsKokkos : public PairGranHopkins {
   void operator()(TagPairGranHopkinsCompute<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE,EVFLAG>, const int, EV_FLOAT &ev) const;
 
   KOKKOS_INLINE_FUNCTION
-  void demsi_single_bond(int,
+  void single_bond(int,
 		   int,
 		   int,
 		   F_FLOAT &fx,
@@ -107,6 +107,21 @@ class PairGranHopkinsKokkos : public PairGranHopkins {
 			     F_FLOAT &torque_i,
 			     F_FLOAT &torque_j,
 			     bool modifyState) const;
+
+  template<int NEIGHFLAG, int NEWTON_PAIR, int HISTORYUPDATE>
+  KOKKOS_INLINE_FUNCTION
+  void compute_bonded_damage_kokkos(int i,
+							        int j,
+							      	int jj,
+							      	F_FLOAT &fx,
+							      	F_FLOAT &fy,
+							      	F_FLOAT &fnx,
+							      	F_FLOAT &fny,
+							      	F_FLOAT &ftx,
+							      	F_FLOAT &fty,
+							      	F_FLOAT &torque_i,
+							      	F_FLOAT &torque_j,
+							      	bool modifyState) const;
 
   KOKKOS_INLINE_FUNCTION
   void update_chi(F_FLOAT kn0,
@@ -271,6 +286,11 @@ class PairGranHopkinsKokkos : public PairGranHopkins {
   FixNeighHistoryKokkos<DeviceType> *fix_historyKK;
 
   friend void pair_virial_fdotr_compute<PairGranHopkinsKokkos>(PairGranHopkinsKokkos*);
+
+ private:
+  
+  // Integration point locations for damage model
+  std::vector<F_FLOAT> psi_pts {-0.57735026919, 0.57735026919};
 };
 
 }
