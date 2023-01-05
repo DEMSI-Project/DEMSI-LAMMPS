@@ -102,8 +102,10 @@ void FixNVESphereDemsiKokkos<DeviceType>::initial_integrate_item(const int i) co
 
   if (mask(i) & groupbit) {
 
-    const double vel_diff = sqrt((ocean_vel(i,0)-v(i,0))*(ocean_vel(i,0)-v(i,0)) +
-                                 (ocean_vel(i,1)-v(i,1))*(ocean_vel(i,1)-v(i,1)));
+    const double vel_diff =
+      useQuadraticOceanStress * sqrt((ocean_vel(i,0)-v(i,0))*(ocean_vel(i,0)-v(i,0)) +
+                                     (ocean_vel(i,1)-v(i,1))*(ocean_vel(i,1)-v(i,1))) +
+      (1.0 - useQuadraticOceanStress);
     const double D = ice_area(i)*ocean_drag*ocean_density*vel_diff;
     const double m_prime = rmass(i)/dtf;
     const double a00 = m_prime+D;
@@ -172,8 +174,10 @@ void FixNVESphereDemsiKokkos<DeviceType>::final_integrate_item(const int i) cons
 
   if (mask(i) & groupbit) {
 
-    const double vel_diff = sqrt((ocean_vel(i,0)-v(i,0))*(ocean_vel(i,0)-v(i,0)) +
-                                 (ocean_vel(i,1)-v(i,1))*(ocean_vel(i,1)-v(i,1)));
+    const double vel_diff =
+      useQuadraticOceanStress * sqrt((ocean_vel(i,0)-v(i,0))*(ocean_vel(i,0)-v(i,0)) +
+                                     (ocean_vel(i,1)-v(i,1))*(ocean_vel(i,1)-v(i,1))) +
+      (1.0 - useQuadraticOceanStress);
     const double D = ice_area(i)*ocean_drag*ocean_density*vel_diff;
     const double m_prime = rmass(i)/dtf;
     const double a00 = m_prime+D;
