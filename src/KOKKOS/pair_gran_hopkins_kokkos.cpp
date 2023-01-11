@@ -852,6 +852,10 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i,
     fnx = fny = 0;
     ftx = fty = 0;
     torque_i = torque_j = 0;
+    //std::cout << "In ridging no contact..." << std::endl;
+    //std::cout << "Damage 0: " << d_firsthistory(i,size_history*jj+0) << std::endl;
+    //std::cout << "Damage 1: " << d_firsthistory(i,size_history*jj+1) << std::endl;
+
   } else {
     if (modifyState) {
       if (!d_firsttouch(i,jj)) { //If this is first contact
@@ -866,6 +870,9 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i,
         }
       }
     }
+    //std::cout << "In ridging contact..." << std::endl;
+    //std::cout << "Damage 0: " << d_firsthistory(i,size_history*jj+0) << std::endl;
+    //std::cout << "Damage 1: " << d_firsthistory(i,size_history*jj+1) << std::endl;
 
     r = sqrt(rsq);
     rinv = 1.0/r;
@@ -1411,6 +1418,11 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
         // Get current damage value (damage is irreversible)
         F_FLOAT damage = std::min(1.0,std::max(delta_e_f*(delta_e - delta_e_0)/(delta_e*(delta_e_f - delta_e_0)), 
                                                d_firsthistory(i,size_history*jj+gp_num)));
+
+        if (damage > 0.0 && damage < 1.0) {
+          //error->all(FLERR,"Stop");
+          std::cout << "\nbonded damage " << gp_num << ": " << damage << std::endl;
+        }
 
         // Normal force magnitude
         F_FLOAT s_normal = (1.0 - damage)*kn0*delta_n;
