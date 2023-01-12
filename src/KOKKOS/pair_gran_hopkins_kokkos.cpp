@@ -1422,6 +1422,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
         if (damage > 0.0 && damage < 1.0) {
           //error->all(FLERR,"Stop");
           std::cout << "\nbonded damage " << gp_num << ": " << damage << std::endl;
+          
         }
 
         // Normal force magnitude
