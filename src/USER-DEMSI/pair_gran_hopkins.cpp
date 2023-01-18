@@ -14,10 +14,6 @@
    Contributing authors: Dan S. Bolintineanu (SNL), Adrian K. Turner (LANL)
    ------------------------------------------------------------------------- */
 
-#include <math.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include "pair_gran_hopkins.h"
 #include "atom.h"
 #include "update.h"
@@ -30,6 +26,11 @@
 #include "memory.h"
 #include "error.h"
 #include "math_const.h"
+
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
 using namespace LAMMPS_NS;
 using namespace MathConst;
@@ -668,6 +669,9 @@ void PairGranHopkins::settings(int narg, char **arg)
   
   // Additional items for Hopkins model with damage
   hopkinsDamage = utils::numeric(FLERR,arg[15],false,lmp);
+  if (hopkinsDamage) {
+    nondefault_history_transfer = 2;
+  }
   cohesion = utils::numeric(FLERR,arg[16],false,lmp);
   fractureG1c = utils::numeric(FLERR,arg[17],false,lmp);
   fractureG2c = utils::numeric(FLERR,arg[18],false,lmp);
@@ -723,4 +727,4 @@ void PairGranHopkins::transfer_history(double* sourcevalues, double* targetvalue
     targetvalues[8] = sourcevalues[8];
     targetvalues[9] = sourcevalues[9];
   }
-};
+}

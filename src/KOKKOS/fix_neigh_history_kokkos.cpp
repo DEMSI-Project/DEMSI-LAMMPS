@@ -141,12 +141,13 @@ void FixNeighHistoryKokkos<DeviceType>::pre_exchange_item(const int &ii) const
         d_resize() = 1;
       }
       if (j < nlocal_neigh) {
-	m = Kokkos::atomic_fetch_add(&d_npartner[j],1);
-	if (m < maxpartner) {
-	  d_partner(j,m) = tag[i];
-          if (nondefault_history_transfer) {
+	      m = Kokkos::atomic_fetch_add(&d_npartner[j],1);
+	      if (m < maxpartner) {
+	        d_partner(j,m) = tag[i];
+          if (nondefault_history_transfer == 1) {
+            std::cout << "nondefault_history_transfer = " << nondefault_history_transfer << std::endl;
             if (d_firstvalue(i,dnum*jj) < d_firstvalue(i,dnum*jj+1)) {
-	      d_valuepartner(j,dnum*m)   = d_firstvalue(i,dnum*jj);
+	            d_valuepartner(j,dnum*m)   = d_firstvalue(i,dnum*jj);
               d_valuepartner(j,dnum*m+1) = d_firstvalue(i,dnum*jj+1);
 
               d_valuepartner(j,dnum*m+2) = d_firstvalue(i,dnum*jj+6);
@@ -162,7 +163,7 @@ void FixNeighHistoryKokkos<DeviceType>::pre_exchange_item(const int &ii) const
               d_valuepartner(j,dnum*m+10) = d_firstvalue(i,dnum*jj+10);
               d_valuepartner(j,dnum*m+11) = d_firstvalue(i,dnum*jj+11);
             } else {
-	      d_valuepartner(j,dnum*m)   = d_firstvalue(i,dnum*jj);
+	            d_valuepartner(j,dnum*m)   = d_firstvalue(i,dnum*jj);
               d_valuepartner(j,dnum*m+1) = d_firstvalue(i,dnum*jj+1);
 
               d_valuepartner(j,dnum*m+2) = -d_firstvalue(i,dnum*jj+2);
@@ -174,18 +175,62 @@ void FixNeighHistoryKokkos<DeviceType>::pre_exchange_item(const int &ii) const
               d_valuepartner(j,dnum*m+7) = d_firstvalue(i,dnum*jj+7);
               d_valuepartner(j,dnum*m+8) = d_firstvalue(i,dnum*jj+8);
               d_valuepartner(j,dnum*m+9) = d_firstvalue(i,dnum*jj+9);
-	      d_valuepartner(j,dnum*m+10) = d_firstvalue(i,dnum*jj+10);
+	            d_valuepartner(j,dnum*m+10) = d_firstvalue(i,dnum*jj+10);
               d_valuepartner(j,dnum*m+11) = d_firstvalue(i,dnum*jj+11);
             }
-          }
-          else {
-	    for (int k = 0; k < dnum; k++) {
-	      d_valuepartner(j,dnum*m+k) = d_firstvalue(i,dnum*jj+k);
+          } else if (nondefault_history_transfer == 2) {
+            //std::cout << "nondefault_history_transfer = " << nondefault_history_transfer << std::endl;
+            if (d_firstvalue(i,dnum*jj) < 1.0 && d_firstvalue(i,dnum*jj+1) < 1.0) {
+              //if (d_firstvalue(i,dnum*jj) > 0.5 || d_firstvalue(i,dnum*jj) > 0.5) {
+                //std::cout << "damage 0 is above " << d_firstvalue(i,dnum*jj) << std::endl;
+                //std::cout << "damage 1 is above " << d_firstvalue(i,dnum*jj+1) << std::endl;
+              //}
+              //std::cout << "Bonded" << std::endl;
+              //std::cout << "damage at gp 1: " << d_firstvalue(i,dnum*jj) << std::endl;
+              //std::cout << "damage at gp 2: " << d_firstvalue(i,dnum*jj+1) << std::endl;
+	            d_valuepartner(j,dnum*m)   = d_firstvalue(i,dnum*jj);
+              d_valuepartner(j,dnum*m+1) = d_firstvalue(i,dnum*jj+1);
+
+              d_valuepartner(j,dnum*m+2) = d_firstvalue(i,dnum*jj+6);
+              d_valuepartner(j,dnum*m+3) = d_firstvalue(i,dnum*jj+7);
+              d_valuepartner(j,dnum*m+4) = d_firstvalue(i,dnum*jj+8);
+              d_valuepartner(j,dnum*m+5) = d_firstvalue(i,dnum*jj+9);
+
+              d_valuepartner(j,dnum*m+6) = d_firstvalue(i,dnum*jj+2);
+              d_valuepartner(j,dnum*m+7) = d_firstvalue(i,dnum*jj+3);
+              d_valuepartner(j,dnum*m+8) = d_firstvalue(i,dnum*jj+4);
+              d_valuepartner(j,dnum*m+9) = d_firstvalue(i,dnum*jj+5);
+
+              d_valuepartner(j,dnum*m+10) = d_firstvalue(i,dnum*jj+10);
+              d_valuepartner(j,dnum*m+11) = d_firstvalue(i,dnum*jj+11);
+            } else {
+              std::cout << "Not Bonded" << std::endl;
+              std::cout << "damage at gp 1: " << d_firstvalue(i,dnum*jj) << std::endl;
+              std::cout << "damage at gp 2: " << d_firstvalue(i,dnum*jj+1) << std::endl;
+	            d_valuepartner(j,dnum*m)   = d_firstvalue(i,dnum*jj);
+              d_valuepartner(j,dnum*m+1) = d_firstvalue(i,dnum*jj+1);
+
+              d_valuepartner(j,dnum*m+2) = -d_firstvalue(i,dnum*jj+2);
+              d_valuepartner(j,dnum*m+3) = -d_firstvalue(i,dnum*jj+3);
+
+              d_valuepartner(j,dnum*m+4) = d_firstvalue(i,dnum*jj+4);
+              d_valuepartner(j,dnum*m+5) = d_firstvalue(i,dnum*jj+5);
+              d_valuepartner(j,dnum*m+6) = d_firstvalue(i,dnum*jj+6);
+              d_valuepartner(j,dnum*m+7) = d_firstvalue(i,dnum*jj+7);
+              d_valuepartner(j,dnum*m+8) = d_firstvalue(i,dnum*jj+8);
+              d_valuepartner(j,dnum*m+9) = d_firstvalue(i,dnum*jj+9);
+	            d_valuepartner(j,dnum*m+10) = d_firstvalue(i,dnum*jj+10);
+              d_valuepartner(j,dnum*m+11) = d_firstvalue(i,dnum*jj+11);
+            }
+          } else {
+            std::cout << "nondefault_history_transfer = " << nondefault_history_transfer << std::endl;
+	          for (int k = 0; k < dnum; k++) {
+	            d_valuepartner(j,dnum*m+k) = d_firstvalue(i,dnum*jj+k);
             }
           }
-	} else {
-	  d_resize() = 1;
-	}
+	      } else {
+	        d_resize() = 1;
+	      }
       }
     }
   }
@@ -243,6 +288,7 @@ template<class DeviceType>
 KOKKOS_INLINE_FUNCTION
 void FixNeighHistoryKokkos<DeviceType>::post_neighbor_item(const int &ii) const
 {
+  //std::cout << "In post neighbor item" << std::endl;
   const int i = d_ilist[ii];
   const int jnum = d_numneigh[i];
   const int np = d_npartner[i];
@@ -262,11 +308,13 @@ void FixNeighHistoryKokkos<DeviceType>::post_neighbor_item(const int &ii) const
       if (m < np) {
         d_firstflag(i,jj) = 1;
         for (int k = 0; k < dnum; k++) {
+          //std::cout << "setting first value as partner value" << std::endl;
           d_firstvalue(i, dnum*jj+k) = d_valuepartner(i, dnum*m+k);
         }
       } else {
         d_firstflag(i,jj) = 0;
         for (int k = 0; k < dnum; k++) {
+          //std::cout << "setting first value to zero" << std::endl;
           d_firstvalue(i, dnum*jj+k) = 0;
         }
       }

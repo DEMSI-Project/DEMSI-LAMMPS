@@ -834,7 +834,15 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i,
   X_FLOAT rsq = delx*delx + dely*dely;
   F_FLOAT radsum = radius[i] + radius[j];
 
-  if (rsq >= radsum*radsum) {
+  if (rsq >= radsum*radsum) { 
+    //if (d_firsthistory(i,size_history*jj) < 1.0 || d_firsthistory(i,size_history*jj+1) < 1.0) {
+      //std::cout << "In ridging, NO contact" << std::endl;
+      //std::cout << "Damage 0: " << d_firsthistory(i,size_history*jj) << std::endl;
+      //std::cout << "Damage 1: " << d_firsthistory(i,size_history*jj+1) << std::endl;
+      //std::cout << "d_firsttouch: " << d_firsttouch(i,jj) << std::endl;
+      //error->all(FLERR,"Bond damage is less than zero.");
+    //}
+
     if (modifyState) {
       d_firsttouch(i,jj) = 0;
 
@@ -857,6 +865,14 @@ void PairGranHopkinsKokkos<DeviceType>::compute_nonbonded_kokkos(int i,
     //std::cout << "Damage 1: " << d_firsthistory(i,size_history*jj+1) << std::endl;
 
   } else {
+    //if (d_firsthistory(i,size_history*jj) < 1.0 || d_firsthistory(i,size_history*jj+1) < 1.0) {
+      //std::cout << "In ridging, YES contact" << std::endl;
+      //std::cout << "Damage 0: " << d_firsthistory(i,size_history*jj) << std::endl;
+      //std::cout << "Damage 1: " << d_firsthistory(i,size_history*jj+1) << std::endl;
+      //std::cout << "d_firsttouch: " << d_firsttouch(i,jj) << std::endl;
+      //error->all(FLERR,"Bond damage is less than zero.");
+    //}
+
     if (modifyState) {
       if (!d_firsttouch(i,jj)) { //If this is first contact
 	      d_firsttouch(i,jj) = 1;
@@ -1288,6 +1304,17 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
   mex = mx/mmag;
   mey = my/mmag;
 
+  double D0_in = d_firsthistory(i,size_history*jj);
+  double D1_in = d_firsthistory(i,size_history*jj+1);
+
+  if (d_firsthistory(i,size_history*jj) < 0. || d_firsthistory(i,size_history*jj+1) < 0.) {
+    error->all(FLERR,"Damage is negative.");
+  }
+
+  if (d_firsthistory(i,size_history*jj) > 1. || d_firsthistory(i,size_history*jj+1) > 1.) {
+    error->all(FLERR,"Damage is greater than 1.");
+  }
+
   if (std::isnan(mex) || std::isnan(mey)) {
     std::cout << "One of the bond unit vecotrs are NaN" << std::endl;
     std::cout << "Home particle position: " << x(i,0) << ", " << x(i,1) << std::endl;
@@ -1419,10 +1446,9 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
         F_FLOAT damage = std::min(1.0,std::max(delta_e_f*(delta_e - delta_e_0)/(delta_e*(delta_e_f - delta_e_0)), 
                                                d_firsthistory(i,size_history*jj+gp_num)));
 
-        if (damage > 0.0 && damage < 1.0) {
+        if (damage >= 1) {
           //error->all(FLERR,"Stop");
           std::cout << "\nbonded damage " << gp_num << ": " << damage << std::endl;
-          
         }
 
         // Normal force magnitude
@@ -1593,6 +1619,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
 
     // Check if bond is completely broken
     if (d_firsthistory(i,size_history*jj) >= 1.0 && d_firsthistory(i,size_history*jj+1) >= 1.0) {
+        std::cout << "Bond is broken" << std::endl;
         F_FLOAT dx = x(i,0) - x(j,0);
         F_FLOAT dy = x(i,1) - x(j,1);
         F_FLOAT rij = sqrt(dx*dx + dy*dy);
@@ -1609,6 +1636,31 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
         d_firsthistory(i,size_history*jj+4) = delta_0;
     }
   }
+
+  //if (d_firsthistory(i,size_history*jj) >= 1 || d_firsthistory(i,size_history*jj+1) >= 1) {
+    //std::cout << "D1: " << d_firsthistory(i,size_history*jj+0) << std::endl;
+    //std::cout << "D2: " << d_firsthistory(i,size_history*jj+1) << std::endl;
+    // std::cout << "x home: " << x(i,0) << ", " << x(i,1) << std::endl; 
+    // std::cout << "x neigh: " << x(j,0) << ", " << x(j,1) << std::endl; 
+    // std::cout << "dotprod*delta_n: " << dotprod*delta_n << std::endl;
+    // std::cout << "delta_s: " << delta_s << std::endl; 
+    // std::cout << "normal stress: " << kn0*delta_n << std::endl;
+    // std::cout << "shear stress: " << kt0*delta_s << std::endl;
+    // std::cout << "tensile fialure: " << sig_t << std::endl;
+    // std::cout << "compressive failure: " << sig_c << std::endl;
+    // std::cout << "Cohesion: " << cohesion << std::endl;
+  //}
+
+  double D0_out = d_firsthistory(i,size_history*jj);
+  double D1_out = d_firsthistory(i,size_history*jj+1);
+
+  if (D0_out - D0_in < 0.0 || D1_out - D1_in < 0.0) {
+    error->all(FLERR,"Damage went backwards");
+  }
+
+  // if (D0_out < 0.501 && D0_out > 0.499) {
+  //   std::cout << "damatge is 0.5 in the contact model" << std::endl;
+  // }
 }
 
 template<class DeviceType>
