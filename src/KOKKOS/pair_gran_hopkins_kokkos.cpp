@@ -413,7 +413,7 @@ void PairGranHopkinsKokkos<DeviceType>::operator()(TagPairGranHopkinsCompute<NEI
 
 template<class DeviceType>
 KOKKOS_INLINE_FUNCTION
-void PairGranHopkinsKokkos<DeviceType>::demsi_single_bond(int i,
+void PairGranHopkinsKokkos<DeviceType>::single_bond(int i,
 						    int j,
 						    int jj,
 						    F_FLOAT &fx,

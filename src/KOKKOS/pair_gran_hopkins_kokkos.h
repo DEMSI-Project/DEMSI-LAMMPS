@@ -51,7 +51,7 @@ class PairGranHopkinsKokkos : public PairGranHopkins {
   void operator()(TagPairGranHopkinsCompute<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE,EVFLAG>, const int, EV_FLOAT &ev) const;
 
   KOKKOS_INLINE_FUNCTION
-  void demsi_single_bond(int,
+  void single_bond(int,
 		   int,
 		   int,
 		   F_FLOAT &fx,
