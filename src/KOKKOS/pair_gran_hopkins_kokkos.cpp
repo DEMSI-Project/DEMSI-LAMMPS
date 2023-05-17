@@ -1527,18 +1527,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
 
       // Get current damage value (damage is irreversible)
       F_FLOAT damage_val = 1.0 - delta_e_f*(delta_e - delta_e_0)/(delta_e*(delta_e_f - delta_e_0));
-      //F_FLOAT damage_val = 1.0 - delta_e*(delta_e - delta_e_0)/(delta_e_f*(delta_e_f - delta_e_0));
-      //F_FLOAT damage_val = 1.0 - (delta_e - delta_e_0)/(delta_e_f - delta_e_0);
       F_FLOAT damage = std::max(0.0,std::min(damage_val, d_firsthistory(i,size_history*jj+gp_num)));
-
-      // if (damage_val < 1.0) {
-      //   std::cout << "\ngauss point: " << gp_num << std::endl;
-      //   std::cout << "delta_e: " << delta_e << std::endl;
-      //   std::cout << "delta_e_0: " << delta_e_0 << std::endl;
-      //   std::cout << "delta_e_f: " << delta_e_f << std::endl;
-      //   std::cout << "damage_val: " << damage_val << std::endl;
-      //   std::cout << "damage: " << damage << std::endl;
-      // }
 
       // Normal force magnitude
       F_FLOAT s_normal = damage*kn0*delta_n;
@@ -1585,8 +1574,6 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
 
       // Get current damage value (damage is irreversible)
       F_FLOAT damage_val = 1.0 - delta_s_f*(std::abs(delta_s) - delta_s_0)/(std::abs(delta_s)*(delta_s_f - delta_s_0));
-      //F_FLOAT damage_val = 1.0 - std::abs(delta_s)*(std::abs(delta_s) - delta_s_0)/(delta_s_f*(delta_s_f - delta_s_0));
-      //F_FLOAT damage_val = 1.0 - (std::abs(delta_s) - delta_s_0)/(delta_s_f - delta_s_0);
       F_FLOAT damage = std::max(0.0,std::min(damage_val, d_firsthistory(i,size_history*jj+gp_num)));
       
       // Shear force magnitude
@@ -1602,29 +1589,9 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
       }
     }
 
-    // if (!modifyState) {
-    //   //double area = d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11);
-    //   //double s_normal = fx/area;
-    //   if (std::abs(Fnmag) > 1e6) {
-    //     std::cout << "\ngauss point: " << gp_num << std::endl;
-    //     std::cout << "Damage: " << d_firsthistory(i,size_history*jj+gp_num) << std::endl;
-    //     std::cout << "Fnmag: " << Fnmag << std::endl;
-    //     std::cout << "Ftmag: " << Ftmag << std::endl;
-    //   }
-    // }
-
     // Update integration point counter
     gp_num += 1;
   }
-
-  // if (!modifyState) {
-  //   //double area = d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11);
-  //   //double s_normal = fx/area;
-  //   if (std::abs(Fnmag) > 5e6) {
-  //     std::cout << "\nFnmag: " << Fnmag << std::endl;
-  //     std::cout << "Ftmag: " << Ftmag << std::endl;
-  //   }
-  // }
 
   // Damping force
   area_bond = d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11);
@@ -1640,41 +1607,9 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
   ftx = Ftmag*mex;
   fty = Ftmag*mey;
 
-  // if (!modifyState) {
-  //   //double area = d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11);
-  //   //double s_normal = fx/area;
-  //   if (std::abs(fnx) > 3e6) {
-  //     std::cout << "fnmag: " << Fnmag << std::endl;
-  //     std::cout << "ftmag: " << Ftmag << std::endl;
-  //     std::cout << "fnx: " << fnx << std::endl;
-  //     std::cout << "fny: " << fny << std::endl;
-  //     std::cout << "ftx: " << ftx << std::endl;
-  //     std::cout << "fty: " << fty << std::endl;
-  //   }
-  // }
-  
-  //double avg_mass = rmass(i)*rmass(j)/(rmass(i) + rmass(j));
-  //double crit_damp = 2.0*avg_mass*std::sqrt(kn0/avg_mass);
-  //std::cout << "crit_damp: " << crit_damp << std::endl;
-
   // Total force on home particle with damping
   fx = fnx + ftx + fdampx;
   fy = fny + fty + fdampy;
-
-  // if (!modifyState) {
-  //   //double area = d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11);
-  //   //double s_normal = fx/area;
-  //   if (std::abs(fx) > 3e6) {
-  //     std::cout << "fdampx: " << fdampx << std::endl;
-  //     std::cout << "fdampy: " << fdampy << std::endl;
-  //     std::cout << "fnmag: " << Fnmag << std::endl;
-  //     std::cout << "ftmag: " << Ftmag << std::endl;
-  //     std::cout << "fnx: " << fnx << std::endl;
-  //     std::cout << "fny: " << fny << std::endl;
-  //     std::cout << "ftx: " << ftx << std::endl;
-  //     std::cout << "fty: " << fty << std::endl;
-  //   }
-  // }
 
   // Moment on home particle with damping
   torque_i = Nn + Nt + torquedamp;
@@ -1723,19 +1658,6 @@ void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
     // Moment on neighbor particle with damping
     torque_j = Nnj + Ntj - torquedamp;
   }
-
-  // if (!modifyState) {
-  //   double area = d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11);
-  //   double s_normal = fx/area;
-  //   if (fx > 5e6) {
-  //     std::cout << "fnmag: " << Fnmag << std::endl;
-  //     std::cout << "ftmag: " << Ftmag << std::endl;
-  //     std::cout << "fnx: " << fnx << std::endl;
-  //     std::cout << "fny: " << fny << std::endl;
-  //     std::cout << "ftx: " << ftx << std::endl;
-  //     std::cout << "fty: " << fty << std::endl;
-  //   }
-  // }
 
   if (HISTORYUPDATE and modifyState) {
 
