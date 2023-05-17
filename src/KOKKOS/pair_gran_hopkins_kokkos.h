@@ -34,6 +34,9 @@ class FixNeighHistoryKokkos;
 template<int NEIGHFLAG, int NEWTON_PAIR, int HISTORYUPDATE, int EVFLAG>
 struct TagPairGranHopkinsCompute {};
 
+template<int NEIGHFLAG, int NEWTON_PAIR, int HISTORYUPDATE>
+struct TagPairGranHopkinsGetBondInfo {};
+
 template <class DeviceType>
 class PairGranHopkinsKokkos : public PairGranHopkins {
  public:
@@ -50,18 +53,15 @@ class PairGranHopkinsKokkos : public PairGranHopkins {
   KOKKOS_INLINE_FUNCTION
   void operator()(TagPairGranHopkinsCompute<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE,EVFLAG>, const int, EV_FLOAT &ev) const;
 
+  template<int NEIGHFLAG, int NEWTON_PAIR, int HISTORYUPDATE>
   KOKKOS_INLINE_FUNCTION
-  void single_bond(int,
-		   int,
-		   int,
-		   F_FLOAT &fx,
-		   F_FLOAT &fy,
-		   F_FLOAT &fxn,
-		   F_FLOAT &fyn,
-		   F_FLOAT &fxt,
-		   F_FLOAT &fyt,
-		   F_FLOAT &torque_i,
-		   F_FLOAT &torque_j);
+  void operator()(TagPairGranHopkinsGetBondInfo<NEIGHFLAG,NEWTON_PAIR, HISTORYUPDATE>, const int) const;
+
+  Kokkos::View<tagint*[2]> bondGlobalIDs;
+  Kokkos::View<double*[12]> bondContactHistory;
+  Kokkos::View<double*[8]> bondInfo;
+
+  void get_bond_info();
 
   template<int NEIGHFLAG, int NEWTON_PAIR, int HISTORYUPDATE>
   KOKKOS_INLINE_FUNCTION
@@ -269,6 +269,8 @@ class PairGranHopkinsKokkos : public PairGranHopkins {
 
   typename Kokkos::View<int**> d_firsttouch;
   typename Kokkos::View<LMP_FLOAT**> d_firsthistory;
+
+  typename AT::t_int_scalar d_nindex;
 
   int newton_pair;
 

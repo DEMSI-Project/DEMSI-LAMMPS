@@ -84,6 +84,7 @@ PairGranHopkinsKokkos<DeviceType>::~PairGranHopkinsKokkos()
     eatom = nullptr;
     vatom = nullptr;
   }
+
 }
 
 /* ---------------------------------------------------------------------- */
@@ -215,8 +216,7 @@ void PairGranHopkinsKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
   }
   update_dt = update->dt;
 
-
- if (lmp->kokkos->neighflag == HALF) {
+  if (lmp->kokkos->neighflag == HALF) {
     if (force->newton_pair) {
        if (historyupdate) {
           if (vflag_atom) {
@@ -409,55 +409,222 @@ void PairGranHopkinsKokkos<DeviceType>::operator()(TagPairGranHopkinsCompute<NEI
 
 }
 
-//-----------------------------------------------------------------------------
-
+/* ---------------------------------------------------------------------- */
 template<class DeviceType>
-KOKKOS_INLINE_FUNCTION
-void PairGranHopkinsKokkos<DeviceType>::single_bond(int i,
-						    int j,
-						    int jj,
-						    F_FLOAT &fx,
-						    F_FLOAT &fy,
-						    F_FLOAT &fnx,
-						    F_FLOAT &fny,
-						    F_FLOAT &ftx,
-						    F_FLOAT &fty,
-						    F_FLOAT &torque_i,
-						    F_FLOAT &torque_j) {
+void PairGranHopkinsKokkos<DeviceType>::get_bond_info()
+{
+
+  copymode = 1;
+  atomKK->sync(execution_space,datamask_read);
+
+  x = atomKK->k_x.view<DeviceType>();
+  v = atomKK->k_v.view<DeviceType>();
+  omega = atomKK->k_omega.view<DeviceType>();
+  f = atomKK->k_f.view<DeviceType>();
+  torque = atomKK->k_torque.view<DeviceType>();
+  type = atomKK->k_type.view<DeviceType>();
+  mask = atomKK->k_mask.view<DeviceType>();
+  tag = atomKK->k_tag.view<DeviceType>();
+  rmass = atomKK->k_rmass.view<DeviceType>();
+  radius = atomKK->k_radius.view<DeviceType>();
+  min_thickness = atomKK->k_min_thickness.view<DeviceType>();
+  mean_thickness = atomKK->k_mean_thickness.view<DeviceType>();
+  iceConcentration = atomKK->k_iceConcentration.view<DeviceType>();
+  ridgingIceThickness = atomKK->k_ridgingIceThickness.view<DeviceType>();
+  ridgingIceThicknessWeight = atomKK->k_ridgingIceThicknessWeight.view<DeviceType>();
+  netToGrossClosingRatio = atomKK->k_netToGrossClosingRatio.view<DeviceType>();
+  changeEffectiveElementArea = atomKK->k_changeEffectiveElementArea.view<DeviceType>();
+  nlocal = atom->nlocal;
+  nall = atom->nlocal + atom->nghost;
+
+  int inum = list->inum;
+  NeighListKokkos<DeviceType>* k_list = static_cast<NeighListKokkos<DeviceType>*>(list);
+  d_numneigh = k_list->d_numneigh;
+  d_neighbors = k_list->d_neighbors;
+  d_ilist = k_list->d_ilist;
+
+  d_firsttouch = fix_historyKK->d_firstflag;
+  d_firsthistory = fix_historyKK->d_firstvalue;
+
+  EV_FLOAT ev;
+
+  if (strcmp(sig_c0_type,"constant") == 0) {
+    strcmp_sig_c0_type_constant = true;
+    strcmp_sig_c0_type_KovacsSodhi = false;
+  } else if (strcmp(sig_c0_type,"KovacsSodhi") == 0) {
+    strcmp_sig_c0_type_constant = false;
+    strcmp_sig_c0_type_KovacsSodhi = true;
+  } else {
+    error->all(FLERR,"Unknown sig_c0_type");
+  }
+  if (strcmp(sig_t0_type,"constant") == 0) {
+    strcmp_sig_t0_type_constant = true;
+    strcmp_sig_t0_type_multiply_sig_c0 = false;
+  } else if (strcmp(sig_t0_type,"multiply_sig_c0") == 0) {
+    strcmp_sig_t0_type_constant = false;
+    strcmp_sig_t0_type_multiply_sig_c0 = true;
+  } else {
+    error->all(FLERR,"Unknown sig_t0_type");
+  }
+  update_dt = update->dt;
+
+  // local copies for LAMBDA
+  auto numneigh = d_numneigh;
+  auto neighbors = d_neighbors;
+  auto ilist = d_ilist;
+  auto d_tag = tag;
+
+  bool half_list = false;
+  if (lmp->kokkos->neighflag == HALF){
+     half_list = true;
+  }
+
+  bool half_thread_list = false;
+  if (lmp->kokkos->neighflag == HALFTHREAD){
+     half_thread_list = true;
+  }
+
+  auto neighflag = lmp->kokkos->neighflag;
+  auto newton_pair = lmp->force->newton_pair;
+
+  d_nindex = typename AT::t_int_scalar("PairGranHopkinsKokkos index");
+
+  int count = 0;
+
+  Kokkos::parallel_reduce("get_bonds_info::count", Kokkos::RangePolicy<DeviceType>(0, inum), KOKKOS_LAMBDA (const int ii, int& t_count) {
+
+    int ilocal, jlocal;
+    ilocal = ilist(ii);
+    int jnum = numneigh(ilocal);
+    for (int jj = 0; jj < jnum; jj++) {
+      jlocal = neighbors(ilocal,jj);
+      jlocal &= NEIGHMASK;
+
+      //printf("Inside single_bond_test: %d %d %d \n", ii, ilocal, jlocal);
+
+      // For half lists:
+      //   for newton on, all contacts are unique.
+      //   for newton off, check if they're on different procs; if yes, only store the contact if globalID[i] < globalID[j].
+      // For full lists:
+      //   all contacts are duplicate, so take only globalID[i]<globalID[j].
+
+      bool recordBond = false;
+      if (half_list){
+        if (newton_pair) recordBond = true;
+        else{
+          if (ilocal >= nlocal or jlocal >= nlocal){
+            if (d_tag(ilocal) < d_tag(jlocal)) recordBond = true;
+          }
+          else{
+            recordBond = true;
+          }
+        }
+      }
+      else{
+        if (d_tag(ilocal) < d_tag(jlocal)) recordBond = true;
+      }
+
+      if (recordBond) t_count++;
+
+    } // jj
+  }, count); // ii
+
+  Kokkos::resize(bondGlobalIDs, count);
+  Kokkos::resize(bondContactHistory, count);
+  Kokkos::resize(bondInfo, count);
 
   if (lmp->kokkos->neighflag == HALF) {
     if (force->newton_pair) {
-      compute_single_bond<HALF,1,0>(i,j,jj,
-				    fx,fy,
-				    fnx,fny,
-				    ftx,fty,
-				    torque_i,torque_j,
-				    false);
+       Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHopkinsGetBondInfo<HALF,1,0>>(0,nlocal), *this);
     } else {
-      compute_single_bond<HALF,0,0>(i,j,jj,
-				    fx,fy,
-				    fnx,fny,
-				    ftx,fty,
-				    torque_i,torque_j,
-				    false);
+       Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHopkinsGetBondInfo<HALF,0,0>>(0,nlocal), *this);
     }
   } else if (lmp->kokkos->neighflag == HALFTHREAD) {
     if (force->newton_pair) {
-      compute_single_bond<HALFTHREAD,1,0>(i,j,jj,
-					  fx,fy,
-					  fnx,fny,
-					  ftx,fty,
-					  torque_i,torque_j,
-					  false);
+       Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHopkinsGetBondInfo<HALFTHREAD,1,0>>(0,nlocal), *this);
     } else {
-      compute_single_bond<HALFTHREAD,0,0>(i,j,jj,
-					  fx,fy,
-					  fnx,fny,
-					  ftx,fty,
-					  torque_i,torque_j,
-					  false);
+       Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagPairGranHopkinsGetBondInfo<HALFTHREAD,0,0>>(0,nlocal), *this);
     }
   }
+  Kokkos::fence();
+  copymode = 0;
+
+}
+
+template<class DeviceType>
+template<int NEIGHFLAG, int NEWTON_PAIR, int HISTORYUPDATE>
+KOKKOS_INLINE_FUNCTION
+void PairGranHopkinsKokkos<DeviceType>::operator()(TagPairGranHopkinsGetBondInfo<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE>, const int ii) const {
+
+  int ilocal = d_ilist[ii];
+  int jnum = d_numneigh[ilocal];
+
+  for (int jj = 0; jj < jnum; jj++) {
+    int jlocal = d_neighbors(ilocal,jj);
+    jlocal &= NEIGHMASK;
+
+      //printf("Inside single_bond_test fill: %d %d %d \n", ii, ilocal, jlocal);
+      //If needed you can get global IDs now with lmp->atom->tag[ilocal], lmp->atom->tag[jlocal]
+      //See contact model doc for definitions of various per-contact quantities:
+
+      // For half lists:
+      //   for newton on, all contacts are unique.
+      //   for newton off, check if they're on different procs; if yes, only store the contact if globalID[i] < globalID[j].
+      // For full lists:
+      //   all contacts are duplicate, so take only globalID[i]<globalID[j].
+
+      bool recordBond = false;
+      if (NEIGHFLAG == HALF) {
+        if (NEWTON_PAIR) recordBond = true;
+        else{
+          if (ilocal >= nlocal or jlocal >= nlocal){
+            if (tag(ilocal) < tag(jlocal)) recordBond = true;
+          }
+          else{
+            recordBond = true;
+          }
+        }
+      }
+      else{
+        if (tag(ilocal) < tag(jlocal)) recordBond = true;
+      }
+
+      if (recordBond){
+        const int index_to_fill = Kokkos::atomic_fetch_add(&d_nindex(),1);
+
+        bondGlobalIDs(index_to_fill,0) = tag(ilocal);
+        bondGlobalIDs(index_to_fill,1) = tag(jlocal);
+
+        for (int k = 0 ; k < 12 ; k++) {
+          bondContactHistory(index_to_fill,k)  = d_firsthistory(ii,size_history*jj+k);
+        } // k
+
+        F_FLOAT fx, fy;
+        F_FLOAT fnx, fny;
+        F_FLOAT ftx, fty;
+        F_FLOAT torque_i, torque_j;
+
+
+        // calculate the force for a single bond
+        compute_single_bond<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE>(ilocal,jlocal,jj,
+                                                             fx,fy,
+                                                             fnx,fny,
+                                                             ftx,fty,
+                                                             torque_i,torque_j,
+                                                             false);
+        bondInfo(index_to_fill,0) = fx;
+        bondInfo(index_to_fill,1) = fy;
+        bondInfo(index_to_fill,2) = fnx;
+        bondInfo(index_to_fill,3) = fny;
+        bondInfo(index_to_fill,4) = ftx;
+        bondInfo(index_to_fill,5) = fty;
+        bondInfo(index_to_fill,6) = torque_i;
+        bondInfo(index_to_fill,7) = torque_j;
+
+
+
+      } // avoid duplicates
+    } // jj
 
 }
 
