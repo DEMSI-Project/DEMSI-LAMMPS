@@ -15,13 +15,13 @@
    ------------------------------------------------------------------------- */
 
 //For bonded pairs:
-// history[0,1]: chi1, chi2
+// history[0,1]: chi1, chi2 (Redefined as D1, D2 for the damage model)
 // history[2-9]: x,y components of s1i, s2i, s1j, s2j
 // history[10]: bond length
 // history[11]: bond thickness, h
 
 //For unbonded pairs:
-// history[0,1]: chi1, chi2
+// history[0,1]: chi1, chi2 (Redefined as D1, D2 for the damage model)
 // history[2,3]: accumulated tangential displacement at contact, x and y
 // history[4]  : delta_0: initial overlap at bond break
 // history[5]  : previousForceConv
@@ -646,24 +646,42 @@ void PairGranHopkinsKokkos<DeviceType>::compute_single_bond(int i,
 							    F_FLOAT &torque_j,
 							    bool modifyState) const {
 
-  F_FLOAT chi1 = d_firsthistory(i,size_history*jj);
-  F_FLOAT chi2 = d_firsthistory(i,size_history*jj+1);
-  if (chi1 >= chi2) {
-    // Un-bonded, chi1 >= chi2
-    compute_nonbonded_kokkos<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE>(i,j,jj,
-								  fx,fy,
-								  fnx,fny,
-								  ftx,fty,
-								  torque_i,torque_j,
-								  modifyState);
+  if (hopkinsDamage) {
+    if (d_firsthistory(i,size_history*jj) < 1e-12 && d_firsthistory(i,size_history*jj+1) < 1e-12) {
+      // Un-bonded, D1 == 0 and D2 == 0
+      compute_nonbonded_kokkos<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE>(i,j,jj,
+                    fx,fy,
+                    fnx,fny,
+                    ftx,fty,
+                    torque_i,torque_j,
+                    modifyState);
+    } else {
+      // Bonded
+      compute_bonded_damage_kokkos<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE>(i,j,jj,
+                      fx,fy,
+                      fnx,fny,
+                      ftx,fty,
+                      torque_i,torque_j,
+                      modifyState);
+    }
   } else {
-    // Bonded
-    compute_bonded_kokkos<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE>(i,j,jj,
-							       fx,fy,
-							       fnx,fny,
-							       ftx,fty,
-							       torque_i,torque_j,
-							       modifyState);
+    if (d_firsthistory(i,size_history*jj) >= d_firsthistory(i,size_history*jj+1)) {
+      // Un-bonded, chi1 >= chi2
+      compute_nonbonded_kokkos<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE>(i,j,jj,
+                    fx,fy,
+                    fnx,fny,
+                    ftx,fty,
+                    torque_i,torque_j,
+                    modifyState);
+    } else {
+      // Bonded
+      compute_bonded_kokkos<NEIGHFLAG,NEWTON_PAIR,HISTORYUPDATE>(i,j,jj,
+                      fx,fy,
+                      fnx,fny,
+                      ftx,fty,
+                      torque_i,torque_j,
+                      modifyState);
+    }
   }
 
 }
@@ -1504,6 +1522,333 @@ void PairGranHopkinsKokkos<DeviceType>::update_chi(F_FLOAT kn0,
 
 }
 
+template<class DeviceType>
+template<int NEIGHFLAG, int NEWTON_PAIR, int HISTORYUPDATE>
+KOKKOS_INLINE_FUNCTION
+void PairGranHopkinsKokkos<DeviceType>::compute_bonded_damage_kokkos(int i,
+							      int j,
+							      int jj,
+							      F_FLOAT &fx,
+							      F_FLOAT &fy,
+							      F_FLOAT &fnx,
+							      F_FLOAT &fny,
+							      F_FLOAT &ftx,
+							      F_FLOAT &fty,
+							      F_FLOAT &torque_i,
+							      F_FLOAT &torque_j,
+							      bool modifyState) const
+{
+  //See design document for definitions of these variables
+  F_FLOAT s1x, s1y, s2x, s2y, mx, my, mmag, mex, mey, bex, bey, rx, ry, rxj, ryj;
+
+  F_FLOAT Fnmag, Ftmag, Nn, Nt, Nnj, Ntj;
+
+  F_FLOAT area_bond, fdampx, fdampy, torquedamp;
+  
+  if (HISTORYUPDATE and modifyState) {
+
+    // Update bond end points based on particle translations
+    d_firsthistory(i,size_history*jj+2) += dt*v(i,0);
+    d_firsthistory(i,size_history*jj+3) += dt*v(i,1);
+    d_firsthistory(i,size_history*jj+4) += dt*v(i,0);
+    d_firsthistory(i,size_history*jj+5) += dt*v(i,1);
+
+    d_firsthistory(i,size_history*jj+6) += dt*v(j,0);
+    d_firsthistory(i,size_history*jj+7) += dt*v(j,1);
+    d_firsthistory(i,size_history*jj+8) += dt*v(j,0);
+    d_firsthistory(i,size_history*jj+9) += dt*v(j,1);
+
+    // Update bond end points based on particle rotations
+    d_firsthistory(i,size_history*jj+2) += -dt*omega(i,2)*(d_firsthistory(i,size_history*jj+3)-x(i,1));
+    d_firsthistory(i,size_history*jj+3) +=  dt*omega(i,2)*(d_firsthistory(i,size_history*jj+2)-x(i,0));
+    d_firsthistory(i,size_history*jj+4) += -dt*omega(i,2)*(d_firsthistory(i,size_history*jj+5)-x(i,1));
+    d_firsthistory(i,size_history*jj+5) +=  dt*omega(i,2)*(d_firsthistory(i,size_history*jj+4)-x(i,0));
+
+    d_firsthistory(i,size_history*jj+6) += -dt*omega(j,2)*(d_firsthistory(i,size_history*jj+7)-x(j,1));
+    d_firsthistory(i,size_history*jj+7) +=  dt*omega(j,2)*(d_firsthistory(i,size_history*jj+6)-x(j,0));
+    d_firsthistory(i,size_history*jj+8) += -dt*omega(j,2)*(d_firsthistory(i,size_history*jj+9)-x(j,1));
+    d_firsthistory(i,size_history*jj+9) +=  dt*omega(j,2)*(d_firsthistory(i,size_history*jj+8)-x(j,0));
+  }
+
+  // Compute s_1, s_2, m, m_e, b_e
+  s1x = d_firsthistory(i,size_history*jj+6) - d_firsthistory(i,size_history*jj+2);
+  s1y = d_firsthistory(i,size_history*jj+7) - d_firsthistory(i,size_history*jj+3);
+  s2x = d_firsthistory(i,size_history*jj+8) - d_firsthistory(i,size_history*jj+4);
+  s2y = d_firsthistory(i,size_history*jj+9) - d_firsthistory(i,size_history*jj+5);
+
+  mx = d_firsthistory(i,size_history*jj+4) + 0.5*s2x - d_firsthistory(i,size_history*jj+2) - 0.5*s1x;
+  my = d_firsthistory(i,size_history*jj+5) + 0.5*s2y - d_firsthistory(i,size_history*jj+3) - 0.5*s1y;
+  mmag = sqrt(mx*mx + my*my);
+  mex = mx/mmag;
+  mey = my/mmag;
+
+  if (std::isnan(mex) || std::isnan(mey)) {
+    std::cout << "One of the bond unit vecotrs are NaN" << std::endl;
+    std::cout << "Home particle position: " << x(i,0) << ", " << x(i,1) << std::endl;
+    std::cout << "Neigh particle position: " << x(j,0) << ", " << x(j,1) << std::endl;
+    F_FLOAT delx = x(j,0) - x(i,0);
+    F_FLOAT dely = x(j,1) - x(i,1);
+    F_FLOAT rsq = delx*delx + dely*dely;
+    F_FLOAT radsum = radius[i] + radius[j];
+    std::cout << "Overlap: " << radsum - std::sqrt(rsq) << std::endl;
+    std::cout << "First touch: " << d_firsttouch(i,jj) << std::endl;
+    std::cout << "History 1: " << d_firsthistory(i,size_history*jj+0) << std::endl;
+    std::cout << "History 2: " << d_firsthistory(i,size_history*jj+1) << std::endl;
+    std::cout << "History 3: " << d_firsthistory(i,size_history*jj+2) << std::endl;
+    std::cout << "History 4: " << d_firsthistory(i,size_history*jj+3) << std::endl;
+    std::cout << "History 5: " << d_firsthistory(i,size_history*jj+4) << std::endl;
+    std::cout << "History 6: " << d_firsthistory(i,size_history*jj+5) << std::endl;
+    std::cout << "History 7: " << d_firsthistory(i,size_history*jj+6) << std::endl;
+    std::cout << "History 8: " << d_firsthistory(i,size_history*jj+7) << std::endl;
+    std::cout << "History 9: " << d_firsthistory(i,size_history*jj+8) << std::endl;
+    std::cout << "History 10: " << d_firsthistory(i,size_history*jj+9) << std::endl;
+    std::cout << "History 11: " << d_firsthistory(i,size_history*jj+10) << std::endl;
+    std::cout << "History 12: " << d_firsthistory(i,size_history*jj+11) << std::endl;
+    error->all(FLERR,"Bond unit vectors are NaN.");
+  }
+
+  bex = mey;
+  bey = -mex;
+
+  // Compute dot product to check if be vector points from home to neighbor
+  F_FLOAT bonddirx = x(j,0) - x(i,0);
+  F_FLOAT bonddiry = x(j,1) - x(i,1);
+  F_FLOAT mag = sqrt(bonddirx*bonddirx + bonddiry*bonddiry);
+  F_FLOAT dotprod = bonddirx/mag*bex + bonddiry/mag*bey;
+
+  // Normal bond stiffness (E/L)
+  F_FLOAT kn0 = Emod/d_firsthistory(i,size_history*jj+10);
+
+  // Shear bond stiffness (G/L)
+  F_FLOAT kt0 = Gmod/d_firsthistory(i,size_history*jj+10);
+
+  // Compressive failure stress
+  F_FLOAT sig_c;
+  if (strcmp_sig_c0_type_constant) {
+    sig_c = sig_c0;
+  } else if (strcmp_sig_c0_type_KovacsSodhi) {
+    F_FLOAT hmin = MIN(min_thickness(i), min_thickness(j));
+    sig_c = sig_c0*pow(hmin,(2.0/3.0)) * 1000.0;
+  } // else error case already handled previously
+
+  // Tensile failure stress
+  F_FLOAT sig_t;
+  if (strcmp_sig_t0_type_constant) {
+    sig_t = sig_t0;
+  } else if (strcmp_sig_t0_type_multiply_sig_c0) {
+    sig_t = sig_t0 * sig_c;
+  } // else error case already handled previously
+
+  // Ensure cohesion is set correctly
+  if (sig_t > cohesion/tanphi) {
+    error->all(FLERR,"Ratio of Cohesion over tan(frictionAngle) must be less than or equal to tensileBreakingStress");
+  }
+
+  // Initialize the forces and moments
+  Fnmag = 0;
+  Ftmag = 0;
+  Nn = 0;
+  Nt = 0;
+
+  // Integrate stress to calculate the forces
+  int gp_num = 0;
+  for (F_FLOAT const& psi : psi_pts) {
+    // Normal displacement
+    F_FLOAT delta_n = 0.5*((1+psi)*(s1x*bex + s1y*bey) + (1-psi)*(s2x*bex + s2y*bey));
+     
+    // Shear displacement
+    F_FLOAT delta_s = 0.5*((1+psi)*(s1x*mex + s1y*mey) + (1-psi)*(s2x*mex + s2y*mey));
+
+    // Moment arm
+    rx = d_firsthistory(i,size_history*jj+2) + 0.5*s1x + 0.5*(1.0 - psi)*mx - x(i,0);
+    ry = d_firsthistory(i,size_history*jj+3) + 0.5*s1y + 0.5*(1.0 - psi)*my - x(i,1);
+
+    // Bond in tension
+    if (dotprod*delta_n > 0.0) {
+
+      // Equivalent displacement 
+      F_FLOAT delta_e = std::sqrt(delta_n*delta_n + delta_s*delta_s);
+
+      // Displacement ratio
+      F_FLOAT beta = std::abs(delta_s/delta_n);
+
+      // Mixed-mode transition point
+      F_FLOAT beta_0 = kn0*(cohesion - sig_t*tanphi)/(sig_t*kt0);
+
+      // Equivalent displacement at damage onset
+      F_FLOAT delta_e_0;
+      // MC failure
+      if (beta > beta_0) {
+        delta_e_0 = cohesion*std::sqrt(1.0 + beta*beta)/(beta*kt0 + kn0*tanphi);
+      // Tensile failure
+      } else {
+        delta_e_0 = sig_t/kn0*std::sqrt(1.0 + beta*beta);
+      }
+        
+      // Eqiuvalent stiffness
+      F_FLOAT K_eq = (kn0 + beta*beta*kt0)/(1.0 + beta*beta);
+
+      // Failure displacement
+      F_FLOAT coeff_f = fractureG1c + (fractureG2c - fractureG1c)*std::pow(kt0*beta*beta/(kn0 + kt0*beta*beta), fractureEta);
+      F_FLOAT delta_e_f = delta_e_0 + 2.0/(K_eq*delta_e_0)*coeff_f;
+
+      // Get current damage value (damage is irreversible)
+      F_FLOAT damage_val = 1.0 - delta_e_f*(delta_e - delta_e_0)/(delta_e*(delta_e_f - delta_e_0));
+      F_FLOAT damage = std::max(0.0,std::min(damage_val, d_firsthistory(i,size_history*jj+gp_num)));
+
+      // Normal force magnitude
+      F_FLOAT s_normal = damage*kn0*delta_n;
+      Fnmag += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_normal;
+      
+      // Shear force magnitude
+      F_FLOAT s_shear = damage*kt0*delta_s;
+      Ftmag += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_shear;
+
+      // Moment from normal force
+      Nn += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_normal*(rx*bey - ry*bex);
+
+      // Moment from shear force
+      Nt += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_shear*(rx*mey - ry*mex);
+      
+      // Update the damage history
+      if (damage < d_firsthistory(i,size_history*jj+gp_num)) {
+        d_firsthistory(i,size_history*jj+gp_num) = damage;
+      }
+
+    // Bond in compression
+    } else {
+      // Normal stress
+      F_FLOAT s_normal = kn0*delta_n;
+
+      // Check for compressive buckling failure
+      if (std::abs(s_normal) >= sig_c) {
+        s_normal = std::copysign(sig_c, s_normal);
+        d_firsthistory(i,size_history*jj+gp_num) = 0.0;
+      }
+
+      // Normal force and moment (from normal force)
+      Fnmag += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_normal;
+      Nn += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_normal*(rx*bey - ry*bex);
+
+      // Shear strength
+      F_FLOAT fs = cohesion + std::abs(s_normal)*tanphi;
+      
+      // Onset of damage in shear
+      F_FLOAT delta_s_0 = fs/kt0;
+
+      // Failure displacement
+      F_FLOAT delta_s_f = delta_s_0 + 2.0*fractureG2c/fs;
+
+      // Get current damage value (damage is irreversible)
+      F_FLOAT damage_val = 1.0 - delta_s_f*(std::abs(delta_s) - delta_s_0)/(std::abs(delta_s)*(delta_s_f - delta_s_0));
+      F_FLOAT damage = std::max(0.0,std::min(damage_val, d_firsthistory(i,size_history*jj+gp_num)));
+      
+      // Shear force magnitude
+      F_FLOAT s_shear = damage*kt0*delta_s;
+      Ftmag += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_shear;
+
+      // Moment from shear force
+      Nt += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_shear*(rx*mey - ry*mex);
+      
+      // Update the damage history
+      if (damage < d_firsthistory(i,size_history*jj+gp_num)) {
+        d_firsthistory(i,size_history*jj+gp_num) = damage;
+      }
+    }
+
+    // Update integration point counter
+    gp_num += 1;
+  }
+
+  // Damping force
+  area_bond = d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11);
+  fdampx = damp_bonded*area_bond*(v(j,0) - v(i,0));
+  fdampy = damp_bonded*area_bond*(v(j,1) - v(i,1));
+
+  // Damping moment
+  torquedamp = -damp_bonded*area_bond*area_bond*(omega(i,2)-omega(j,2));
+
+  // Update force and moment x-y components
+  fnx = Fnmag*bex;
+  fny = Fnmag*bey;
+  ftx = Ftmag*mex;
+  fty = Ftmag*mey;
+
+  // Total force on home particle with damping
+  fx = fnx + ftx + fdampx;
+  fy = fny + fty + fdampy;
+
+  // Moment on home particle with damping
+  torque_i = Nn + Nt + torquedamp;
+
+  // Moment on neighbor particle
+  Nnj = 0;
+  Ntj = 0;
+  if (NEWTON_PAIR || j < nlocal) {
+
+    // Integrate stress to calculate the moments
+    int gp_num = 0;
+    for (F_FLOAT const& psi : psi_pts) {
+      // Normal displacement
+      F_FLOAT delta_n = 0.5*((1+psi)*(s1x*bex + s1y*bey) + (1-psi)*(s2x*bex + s2y*bey));
+     
+      // Shear displacement
+      F_FLOAT delta_s = 0.5*((1+psi)*(s1x*mex + s1y*mey) + (1-psi)*(s2x*mex + s2y*mey));
+
+      // Shear stress (flipping sign for neighbor calc)
+      F_FLOAT s_shear = -1.0*d_firsthistory(i,size_history*jj+gp_num)*kt0*delta_s;
+
+      // Normal stress (flipping sign for neighbor calc)
+      F_FLOAT s_normal;
+      if (dotprod*delta_n < 0.0) {
+        s_normal = -1.0*kn0*delta_n;
+        // Check for compressive buckling failure
+        if (std::abs(s_normal) >= sig_c) {
+          s_normal = std::copysign(sig_c, s_normal);
+        }
+      } else {
+        s_normal = -1.0*d_firsthistory(i,size_history*jj+gp_num)*kn0*delta_n;
+      }
+
+      // Moment arm
+      rx = d_firsthistory(i,size_history*jj+2) + 0.5*s1x + 0.5*(1.0 - psi)*mx - x(j,0);
+      ry = d_firsthistory(i,size_history*jj+3) + 0.5*s1y + 0.5*(1.0 - psi)*my - x(j,1);
+
+      // Moment from normal force
+      Nnj += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_normal*(rx*bey - ry*bex);
+
+      // Moment from shear force
+      Ntj += 0.5*d_firsthistory(i,size_history*jj+10)*d_firsthistory(i,size_history*jj+11)*s_shear*(rx*mey - ry*mex);
+
+      gp_num += 1;
+    }
+    // Moment on neighbor particle with damping
+    torque_j = Nnj + Ntj - torquedamp;
+  }
+
+  if (HISTORYUPDATE and modifyState) {
+
+    d_firsttouch(i,jj) = 1;
+
+    // Check if bond is completely broken
+    if (d_firsthistory(i,size_history*jj) <= 1e-6 && d_firsthistory(i,size_history*jj+1) <= 1e-6) {
+        F_FLOAT dx = x(i,0) - x(j,0);
+        F_FLOAT dy = x(i,1) - x(j,1);
+        F_FLOAT rij = sqrt(dx*dx + dy*dy);
+        F_FLOAT delta_0 = radius(i) + radius(j) - rij;
+
+        if (delta_0 < 0) { 
+          delta_0 = 0;
+        }
+
+        for (int k = 0; k < size_history; ++k) {
+          d_firsthistory(i,size_history*jj+k) = 0;
+        }
+
+        d_firsthistory(i,size_history*jj+4) = delta_0;
+    }
+  }
+}
 
 template<class DeviceType>
 template<int NEWTON_PAIR>

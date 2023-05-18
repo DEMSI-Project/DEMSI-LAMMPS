@@ -56,6 +56,13 @@ protected:
   double Gmod;
   char sig_c0_type[256];
   char sig_t0_type[256];
+
+  // Additions for the hopkins damage model
+  bool hopkinsDamage;
+  double cohesion;
+  double fractureG1c;
+  double fractureG2c;
+  double fractureEta;
 };
 
 }
