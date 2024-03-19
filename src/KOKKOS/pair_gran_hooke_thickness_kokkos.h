@@ -22,11 +22,20 @@ PairStyle(gran/hooke/thickness/kk/host,PairGranHookeThicknessKokkos<LMPHostType>
 #ifndef LMP_PAIR_GRAN_HOOKE_THICKNESS_KOKKOS_H
 #define LMP_PAIR_GRAN_HOOKE_THICKNESS_KOKKOS_H
 
+#define SORT_CONTACT_FORCE_ORDER
+
 #include "pair_gran_hooke_thickness.h"
 #include "pair_kokkos.h"
 #include "kokkos_type.h"
 
 namespace LAMMPS_NS {
+
+#ifdef SORT_CONTACT_FORCE_ORDER
+struct iReorderStruct {
+  int index;
+  int tag;
+};
+#endif
 
 template <class DeviceType>
 class FixNeighHistoryKokkos;
@@ -63,7 +72,11 @@ class PairGranHookeThicknessKokkos : public PairGranHookeThickness {
   void ev_tally_xyz_atom(EV_FLOAT &ev, int i, int j,
 			 F_FLOAT fx, F_FLOAT fy, F_FLOAT fz,
 			 X_FLOAT delx, X_FLOAT dely, X_FLOAT delz) const;
-    
+
+#ifdef SORT_CONTACT_FORCE_ORDER
+  std::vector<iReorderStruct> iReorder;
+#endif
+
  protected:
   typename AT::t_x_array_randomread x;
   typename AT::t_x_array c_x;

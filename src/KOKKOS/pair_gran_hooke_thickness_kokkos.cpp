@@ -24,6 +24,7 @@
 #include "modify.h"
 #include "fix_neigh_history_kokkos.h"
 #include "update.h"
+#include <algorithm>
 
 using namespace LAMMPS_NS;
 
@@ -107,6 +108,12 @@ void PairGranHookeThicknessKokkos<DeviceType>::init_style()
 
 /* ---------------------------------------------------------------------- */
 
+#ifdef SORT_CONTACT_FORCE_ORDER
+bool compareiReorder(const iReorderStruct &a, const iReorderStruct &b) {
+  return a.tag < b.tag;
+}
+#endif
+
 template<class DeviceType>
 void PairGranHookeThicknessKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
 {
@@ -157,6 +164,14 @@ void PairGranHookeThicknessKokkos<DeviceType>::compute(int eflag_in, int vflag_i
   d_numneigh = k_list->d_numneigh;
   d_neighbors = k_list->d_neighbors;
   d_ilist = k_list->d_ilist;
+
+#ifdef SORT_CONTACT_FORCE_ORDER
+  for (int ii = 0 ; ii < inum ; ii++) {
+    const int i = d_ilist[ii];
+    iReorder.push_back({ii, (int) tag(i)});
+  } // ii
+  std::sort(iReorder.begin(), iReorder.end(), compareiReorder);
+#endif
 
   EV_FLOAT ev;
 
@@ -235,6 +250,17 @@ void PairGranHookeThicknessKokkos<DeviceType>::compute(int eflag_in, int vflag_i
   copymode = 0;
 }
 
+#ifdef SORT_CONTACT_FORCE_ORDER
+struct jReorderStruct {
+  int index;
+  int tag;
+};
+
+bool comparejReorder(const jReorderStruct &a, const jReorderStruct &b) {
+  return a.tag < b.tag;
+};
+#endif
+
 template<class DeviceType>
 template<int NEIGHFLAG, int NEWTON_PAIR, int EVFLAG>
 KOKKOS_INLINE_FUNCTION
@@ -244,7 +270,12 @@ void PairGranHookeThicknessKokkos<DeviceType>::operator()(TagPairGranHookeThickn
   Kokkos::View<F_FLOAT*[3], typename DAT::t_f_array::array_layout,DeviceType,Kokkos::MemoryTraits<AtomicF<NEIGHFLAG>::value> > a_f = f;
   Kokkos::View<F_FLOAT*[3], typename DAT::t_f_array::array_layout,DeviceType,Kokkos::MemoryTraits<AtomicF<NEIGHFLAG>::value> > a_torque = torque;
 
+#ifdef SORT_CONTACT_FORCE_ORDER
+  const int iii = iReorder[ii].index;
+  const int i = d_ilist[iii];
+#else
   const int i = d_ilist[ii];
+#endif
   const X_FLOAT xtmp = x(i,0);
   const X_FLOAT ytmp = x(i,1);
   const X_FLOAT ztmp = x(i,2);
@@ -252,7 +283,17 @@ void PairGranHookeThicknessKokkos<DeviceType>::operator()(TagPairGranHookeThickn
   const LMP_FLOAT imass = rmass(i);
   const int jnum = d_numneigh(i);
   //printf("gran hooke thickness %d, %f %f %f %f \n", i, imass, irad, mean_thickness(i));
-  
+
+#ifdef SORT_CONTACT_FORCE_ORDER
+  std::vector<jReorderStruct> jReorder;
+  for (int jj = 0; jj < jnum; jj++) {
+    int j = d_neighbors(i,jj);
+    j &= NEIGHMASK;
+    jReorder.push_back({jj, (int) tag(j)});
+  }
+  std::sort(jReorder.begin(), jReorder.end(), comparejReorder);
+#endif
+
   F_FLOAT fx_i = 0.0;
   F_FLOAT fy_i = 0.0;
   F_FLOAT fz_i = 0.0;
@@ -262,7 +303,12 @@ void PairGranHookeThicknessKokkos<DeviceType>::operator()(TagPairGranHookeThickn
   F_FLOAT torquez_i = 0.0;
 
   for (int jj = 0; jj < jnum; jj++) {
+#ifdef SORT_CONTACT_FORCE_ORDER
+    int jjj = jReorder[jj].index;
+    int j = d_neighbors(i,jjj);
+#else
     int j = d_neighbors(i,jj);
+#endif
     j &= NEIGHMASK;
     
     const X_FLOAT delx = xtmp - x(j,0);
@@ -361,6 +407,7 @@ void PairGranHookeThicknessKokkos<DeviceType>::operator()(TagPairGranHookeThickn
         ev_tally_xyz_atom<NEIGHFLAG, NEWTON_PAIR>(ev, i, j, fx_i, fy_i, fz_i, delx, dely, delz);
       if (EVFLAG == 1)
         ev_tally_xyz<NEWTON_PAIR>(ev, i, j, fx_i, fy_i, fz_i, delx, dely, delz);
+
     }
   }
 
