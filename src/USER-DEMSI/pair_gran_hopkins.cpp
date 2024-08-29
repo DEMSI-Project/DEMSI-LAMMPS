@@ -31,6 +31,8 @@
 #include "error.h"
 #include "math_const.h"
 
+#include <iostream>
+
 using namespace LAMMPS_NS;
 using namespace MathConst;
 
@@ -691,6 +693,7 @@ double PairGranHopkins::single(int i, int j, int itype, int jtype,
 
 /* ---------------------------------------------------------------------- */
 void PairGranHopkins::transfer_history(double* sourcevalues, double* targetvalues){
+  std::cout << "\n\n Inside transfer history!\n\n" << std::endl; 
   if (sourcevalues[8] < sourcevalues[9]){
     targetvalues[0] = sourcevalues[4];
     targetvalues[1] = sourcevalues[5];

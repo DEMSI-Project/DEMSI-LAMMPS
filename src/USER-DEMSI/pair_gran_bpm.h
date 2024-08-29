@@ -42,9 +42,8 @@ class PairGranBPM : public PairGranHookeHistory {
   std::vector<std::vector<double>> bondInfo;
 
  private:
-
-  void compute_bonded(double*, int*, int, int, std::vector<double>&);
-  void compute_nonbonded(double*, int*, int, int, std::vector<double>&);
+  void compute_bonded(double* history, int* firsttouch, const int& i, const int& j, std::vector<double>& bondInfoIJ);
+  void compute_nonbonded(double* history, int* firsttouch, const int& i, const int& j, std::vector<double>& bondInfoIJ);
   void rotate_tangential_vector(double& x, double& y, const double nx, const double ny);
 
   // history update flag

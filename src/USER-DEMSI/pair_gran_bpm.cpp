@@ -39,6 +39,13 @@ PairGranBPM::PairGranBPM(LAMMPS *lmp) : PairGranHookeHistory(lmp, 6) {
 }
 
 void PairGranBPM::compute(int eflag, int vflag) {
+  // std::cout << "atom->x[0][0]" << atom->x[0][0] << std::endl;
+  // std::cout << "atom->x[0][1]" << atom->x[0][1] << std::endl;
+  // std::cout << "atom->x[1][0]" << atom->x[1][0] << std::endl;
+  // std::cout << "atom->x[1][1]" << atom->x[1][1] << std::endl;
+  // if (std::isnan(atom->x[0][0]))
+  //   error->all(FLERR,"STOPPING FOR NAN");
+
   if (eflag || vflag) 
     ev_setup(eflag,vflag);
   else 
@@ -101,7 +108,8 @@ void PairGranBPM::compute(int eflag, int vflag) {
   if (vflag_fdotr) virial_fdotr_compute();
 }
 
-void PairGranBPM::compute_nonbonded(double* history, int* touch, int i, int j, std::vector<double>& bondInfoIJ) {
+void PairGranBPM::compute_nonbonded(double* history, int* touch, const int& i, const int& j, std::vector<double>& bondInfoIJ) {
+  // std::cout << "Inside non-bonded" << std::endl;
   double **x = atom->x;
   double **v = atom->v;
   double **f = atom->f;
@@ -122,6 +130,7 @@ void PairGranBPM::compute_nonbonded(double* history, int* touch, int i, int j, s
 
   double fx, fy, fnx, fny, ftx, fty, torque_i, torque_j;
   if (rsq >= radsum*radsum) {
+    //std::cout << "rsq >= radsum*radsum" << std::endl;
     if (historyupdate) {
       *touch = 0;
       for (int k = 0; k < size_history; k++) {
@@ -135,6 +144,7 @@ void PairGranBPM::compute_nonbonded(double* history, int* touch, int i, int j, s
     torque_i = 0.; torque_j = 0.;
 
   } else {
+    //std::cout << "rsq < radsum*radsum" << std::endl;
     if (!*touch && historyupdate) {
       *touch = 1;
       for (int k = 0; k < size_history; k++) {
@@ -150,6 +160,7 @@ void PairGranBPM::compute_nonbonded(double* history, int* touch, int i, int j, s
 
     double delta = radsum - r - history[5];
     if (delta <= 0.) {
+      //std::cout << "delta <= 0." << std::endl;
       if (historyupdate) {
         *touch = 0;
         for (int k = 0; k < size_history; k++) {
@@ -175,6 +186,8 @@ void PairGranBPM::compute_nonbonded(double* history, int* touch, int i, int j, s
 
       return;
     }
+
+    //std::cout << "Calculating non-bonded forces" << std::endl;
 
     // subtract to compute tangential component of relative translational velocity
     double vnnr = vrx*nx + vry*ny;
@@ -271,8 +284,11 @@ void PairGranBPM::compute_nonbonded(double* history, int* touch, int i, int j, s
     ev_tally_xyz(i, j, atom->nlocal, force->newton_pair, 0.0, 0.0, fx, fy, 0., delx, dely, 0.);
 }
 
-void PairGranBPM::compute_bonded(double *history, int* touch, int i, int j, std::vector<double>& bondInfoIJ) {
+void PairGranBPM::compute_bonded(double *history, int* touch, const int& i, const int& j, std::vector<double>& bondInfoIJ) {
+  std::cout << "i = " << i << std::endl;
+  std::cout << "j = " << j << std::endl;
   double **x = atom->x;
+  //auto x = atomKK->x;
   double **v = atom->v;
   double **f = atom->f;
   double **omega = atom->omega;
@@ -290,6 +306,9 @@ void PairGranBPM::compute_bonded(double *history, int* touch, int i, int j, std:
   double Ms_bar_old_i = history[4];
   double Ms_bar_old_j = history[5];
 
+  // for (int k=0; k<7; ++k)
+  //   std::cout << "history[" << k << "]: " << history[k] << std::endl;
+  
   double delx = x[i][0] - x[j][0];
   double dely = x[i][1] - x[j][1];
   double r = std::sqrt(delx*delx + dely*dely);
@@ -299,8 +318,35 @@ void PairGranBPM::compute_bonded(double *history, int* touch, int i, int j, std:
   double nx = delx/r;
   double ny = dely/r;
 
+  // for (int k=0; k<90; ++k) {
+  //   std::cout << "x[" << k << "][0]: " << x[k][0] << std::endl;
+  //   std::cout << "x[" << k << "][1]: " << x[k][1] << std::endl;
+  // }
+
+  // std::cout << "i: " << i << std::endl;
+  // std::cout << "j: " << j << std::endl;
+  // std::cout << "x[" << i << "][0]: " << x[i][0] << std::endl;
+  // std::cout << "x[" << i << "][1]: " << x[i][1] << std::endl;
+  // std::cout << "x[" << j << "][0]: " << x[j][0] << std::endl;
+  // std::cout << "x[" << j << "][1]: " << x[j][1] << std::endl;
+
+  // std::cout << "delx: " << delx << std::endl;
+  // std::cout << "dely: " << dely << std::endl;
+
+  // std::cout << "nx: " << nx << std::endl;
+  // std::cout << "ny: " << ny << std::endl;
+
   double vrx = v[i][0] - v[j][0];
   double vry = v[i][1] - v[j][1];
+
+  if (std::abs(v[i][1]) > 0. || std::abs(v[j][1]) > 0.) {
+    std::cout << "x[" << j << "][0]: " << x[j][0] << std::endl;
+    std::cout << "x[" << j << "][1]: " << x[j][1] << std::endl;
+    std::cout << "v[" << j << "][0]: " << v[j][0] << std::endl;
+    std::cout << "v[" << j << "][1]: " << v[j][1] << std::endl;
+    std::cout << "vrx: " << vrx << std::endl;
+    std::cout << "vry: " << vry << std::endl;
+  }
 
   double vr_dot_n = vrx*nx + vry*ny;
 
@@ -320,10 +366,19 @@ void PairGranBPM::compute_bonded(double *history, int* touch, int i, int j, std:
   // Update Fn_bar magnitude
   double Fn_bar = Fn_bar_old - kn*area_bond*vr_dot_n*update->dt;
 
+  // std::cout << "kn: " << kn << std::endl;
+  // std::cout << "area_bond: " << area_bond << std::endl;
+  // std::cout << "vr_dot_n: " << vr_dot_n << std::endl;
+  // std::cout << "update->dt: " << update->dt << std::endl;
+  // std::cout << "Fn_bar: " << Fn_bar << std::endl;
+
   // Update x,y component of Fs_bar
   rotate_tangential_vector(Fs_bar_x_old, Fs_bar_y_old, nx, ny);
   double Fs_bar_x = Fs_bar_x_old - kt*area_bond*vtx*update->dt;
   double Fs_bar_y = Fs_bar_y_old - kt*area_bond*vty*update->dt;
+
+  // std::cout << "Fs_bar_x: " << Fs_bar_x << std::endl;
+  // std::cout << "Fs_bar_y: " << Fs_bar_y << std::endl;
 
   double delta_theta_s = (omega[j][2] - omega[i][2])*update->dt;
   double delta_Ms_bar = kn*moi*delta_theta_s;
@@ -345,7 +400,7 @@ void PairGranBPM::compute_bonded(double *history, int* touch, int i, int j, std:
   bool failure = false;
   if (sigma_bar_max >= sigma_c_bar || tau_bar_max >= tau_c_bar) {
     failure = true;
-    // TODO: Do we set all forces and tourque to zero now?
+    // TODO: Do we set all forces and tourque to zero now? Softening?
     Fn_bar = 0.; Fs_bar_x = 0.; Fs_bar_y = 0.; Ms_bar_i = 0.; Ms_bar_j = 0.;
   }
 
@@ -376,11 +431,26 @@ void PairGranBPM::compute_bonded(double *history, int* touch, int i, int j, std:
   double fny = (Fn_bar - Fn_bar_damp)*ny;
   double ftx = Fs_bar_x - Fs_bar_damp_x; 
   double fty = Fs_bar_y - Fs_bar_damp_y; 
-  double tor_i = Ms_bar_i + Ms_bar_damp; // TODO: check the sign on this
-  double tor_j = Ms_bar_j - Ms_bar_damp; // TODO: check the sign on this
+  double tor_i = Ms_bar_i + Ms_bar_damp; 
+  double tor_j = Ms_bar_j - Ms_bar_damp;
+
+  // std::cout << "fnx: " << fnx << std::endl;
+  // std::cout << "fny: " << fny << std::endl;
+  // std::cout << "ftx: " << ftx << std::endl;
+  // std::cout << "fty: " << fty << std::endl;
+  // std::cout << "tor_i: " << tor_i << std::endl;
+  // std::cout << "tor_j: " << tor_j << std::endl;
 
   double fx = fnx + ftx;
   double fy = fny + fty;
+
+  if (std::isnan(fx) || std::isnan(fy)) {
+    for (int k=0; k<90; ++k) {
+      std::cout << "x[" << k << "][0]: " << x[k][0] << std::endl;
+      std::cout << "x[" << k << "][1]: " << x[k][1] << std::endl;
+    }
+    error->all(FLERR,"Error, NaN in fx or fy bond force");
+  }
 
   f[i][0] += fx;
   f[i][1] += fy;
@@ -389,8 +459,6 @@ void PairGranBPM::compute_bonded(double *history, int* touch, int i, int j, std:
   if (force->newton_pair || j < atom->nlocal) {
     f[j][0] -= fx;
     f[j][1] -= fy;
-
-    // TODO: check the sign on this
     torque[j][2] += tor_j;
   }
 
@@ -416,7 +484,7 @@ void PairGranBPM::compute_bonded(double *history, int* touch, int i, int j, std:
     if (failure) {
       double dx = x[i][0] - x[j][0];
       double dy = x[i][1] - x[j][1];
-      double rij = sqrt(dx*dx + dy*dy);
+      double rij = std::sqrt(dx*dx + dy*dy);
       double delta_0 = atom->radius[i] + atom->radius[j] - rij;
 
       if (delta_0 < 0) 
